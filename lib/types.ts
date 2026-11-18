@@ -46,6 +46,8 @@ export interface FollowUp {
   owner: string;
   priority: 'P1' | 'P2' | 'P3';
   createdAt: string;
+  /** Set when the follow-up was also opened as a real GitHub issue. */
+  url?: string;
 }
 
 export interface Remediation {
@@ -120,6 +122,8 @@ export interface Sandbox {
   callsUsed: number;
   escalatedTo: string | null;
   incidentCount: number;
+  /** Created by the owner's device (owner key): real integrations may run for it. */
+  owner?: boolean;
 }
 
 /** What GET /api/sandbox returns. */

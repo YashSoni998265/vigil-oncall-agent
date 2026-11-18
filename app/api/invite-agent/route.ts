@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Agent, AresSTT, ExpiresIn, MurfTTS, OpenAI } from 'agora-agents';
-import { DEFAULT_AGENT_UID, TEAMMATE_UID } from '@/lib/agora';
+import { DEFAULT_AGENT_UID } from '@/lib/agora';
 import { SANDBOX_ID, readSandbox } from '@/lib/server/store';
 import { buildGreeting, buildInstructions } from '@/lib/server/prompt';
 import { buildAgentTools } from '@/lib/server/agent-tools';
@@ -9,8 +9,8 @@ import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
 
 // Starts Vigil in the engineer's channel:
 // Agora ARES speech recognition (en-IN) → GPT-4.1 mini (Agora-managed) with 13 tools
-// → Murf Falcon text-to-speech (voice "Anusha", en-IN). The agent listens to the
-// engineer and to a paged teammate who joins the same channel.
+// → Murf Falcon text-to-speech (voice "Anusha", en-IN). The agent takes instructions from
+// the on-call engineer; a paged teammate can join the same channel and hear the call.
 
 const MURF_VOICE_ID = process.env.MURF_VOICE_ID ?? 'Anusha';
 const MURF_LOCALE = 'en-IN';
@@ -48,7 +48,11 @@ export async function POST(request: NextRequest) {
     const baseUrl = process.env.PUBLIC_BASE_URL?.replace(/\/$/, '') ?? '';
     const toolSecret = process.env.TOOL_SECRET ?? '';
     const toolsEnabled = baseUrl.startsWith('https://') && toolSecret.length >= 16;
-    if (!toolsEnabled) console.warn('[invite-agent] Tools disabled: set PUBLIC_BASE_URL (https) and TOOL_SECRET.');
+    if (!toolsEnabled) {
+      // An agent without tools could only talk about fixes, never make them. Refuse clearly.
+      console.error('[invite-agent] PUBLIC_BASE_URL (https) and TOOL_SECRET (16+ chars) are required.');
+      return NextResponse.json({ error: 'Vigil is not fully configured on this server (tools are unreachable). Please try again later.' }, { status: 503 });
+    }
 
     const greeting = buildGreeting(sb, Date.now());
     const instructions = buildInstructions(sb);
@@ -100,11 +104,13 @@ export async function POST(request: NextRequest) {
       )
       .withTools(toolsEnabled);
 
-    // The agent hears the engineer and, once paged in, the teammate on the same call.
+    // One voice in command: the agent takes instructions from the on-call engineer only
+    // (Agora subscribes the agent to one user). A paged teammate joins the same channel,
+    // hears everyone, and Vigil briefs them when they arrive.
     const session = agent.createSession({
       channel,
       agentUid,
-      remoteUids: [requester, String(TEAMMATE_UID)],
+      remoteUids: [requester],
       idleTimeout: 30,
       expiresIn: ExpiresIn.hours(1),
       debug: false,

@@ -49,8 +49,8 @@ The fix is usually minutes. **Finding it, at night, alone, takes the rest.** Tod
 | ✅ **Acts only on your yes** | One tool can change production. The server checks your exact words against the live transcript. Questions, hedges and "no, wait" never execute. One yes authorises one change. |
 | 🔁 **Adapts when a fix fails** | Rollback blocked by an irreversible migration? It says why and offers the next-safest fix from the runbook. |
 | 📈 **Proves recovery** | Never says "fixed" until live metrics are back at baseline; tells you on its own when they are. |
-| 👥 **Brings the team in** | "Add Arjun to the call": his phone rings, he joins the **same live call** (Agora RTC), and Vigil briefs him. |
-| 📣 **Closes the loop** | Public status page, incident channel, follow-up tickets with owners, a blameless postmortem with timeline and approvals. |
+| 👥 **Brings the team in** | "Add Arjun to the call": his phone rings, he joins the **same live call** (Agora RTC), and Vigil briefs him. One voice stays in command: Vigil takes instructions only from the on-call engineer. |
+| 📣 **Closes the loop** | Public status page, incident channel, follow-up tickets with owners (optionally opened as **real GitHub issues**), a blameless postmortem with timeline and approvals. |
 | ⏰ **Never drops a page** | No answer in 30 s: rings again, then pages the secondary on-call with the full diagnosis. |
 
 <table>
@@ -93,7 +93,8 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
   voice + typed messages ──── Agora RTC ────► Agora Conversational AI Engine
   live captions ◄──────────── Agora RTM ◄────  ARES ASR (en-IN) → GPT-4.1 mini (Agora-managed)
                                                → Murf Falcon TTS ("Anusha", en-IN) · filler words
-  Teammate's phone (/join) ── Agora RTC ────►  (the agent listens to both people on one channel)
+  Teammate's phone (/join) ── Agora RTC ────►  (same channel: hears Vigil and the engineer; Vigil takes
+                                                instructions from the on-call engineer only)
                                                      │  HTTPS tool calls (shared secret + sandbox id)
                                                      ▼
                          Next.js API: 13 tools ── per-visitor sandbox (Thali's simulated production)
@@ -133,7 +134,7 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 | Suite | What it covers | Result |
 |---|---|---|
 | **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. | **8 / 8 scenarios · 19 / 19 checks** |
-| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, call gate, secrets, pages. | **50 / 50** |
+| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages. | **55 / 55** |
 | **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting. | **14 / 14** |
 | **CI** | Doctor, lint, type-check, unit tests and a production build on Node 22 and 24, on every push. | [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml) |
 
@@ -159,6 +160,8 @@ cloudflared tunnel --url http://localhost:3000
 | `/status?s=…` | Thali's public status page, updated by Vigil |
 | `/postmortem?s=…` | The postmortem Vigil drafts on resolve |
 | `/join?s=…` | A paged teammate joins the live call from any phone |
+
+**Real GitHub issues (optional):** set `GITHUB_TOKEN` (fine-grained, Issues read/write on one repo) and `GITHUB_ISSUES_REPO`; follow-ups Vigil creates are also opened as GitHub issues, linked from the console and the postmortem. On a public link this runs only for the owner's sandboxes.
 
 **Deploy on Vercel:** import the repo, add the variables from `env.local.example`, connect Upstash Redis (Storage tab), set `PUBLIC_BASE_URL` to the deployment URL. Functions run in Mumbai (`vercel.json`). Public-demo limits (calls per sandbox, daily cap, 5-minute calls) protect your Agora minutes and Murf credits; `/console?owner=<OWNER_KEY>` skips them on your own devices.
 

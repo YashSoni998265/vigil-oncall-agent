@@ -324,6 +324,11 @@ function Tickets({ incident }: { incident: Incident | null }) {
             <p className="text-[13px] font-medium leading-snug text-ink">{f.title}</p>
             <p className="mt-0.5 font-mono text-[11px] text-faint">
               {f.key} · {f.owner}
+              {f.url && (
+                <a href={f.url} target="_blank" rel="noreferrer" className="ml-2 inline-flex items-center gap-0.5 text-sky hover:underline">
+                  GitHub issue <ExternalLink className="h-3 w-3" aria-hidden />
+                </a>
+              )}
             </p>
           </div>
         </li>

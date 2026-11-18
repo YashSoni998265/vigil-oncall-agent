@@ -6,6 +6,7 @@ import {
   addTyped,
   declineCall,
   endCall,
+  isOwner,
   failCall,
   heartbeat,
   mergeCaptions,
@@ -38,7 +39,7 @@ export async function POST(request: NextRequest) {
   const action = String(body.action ?? '');
 
   if (action === 'create') {
-    const sb = await newSandbox(typeof body.name === 'string' ? body.name : undefined);
+    const sb = await newSandbox(typeof body.name === 'string' ? body.name : undefined, isOwner(request.headers.get('x-owner-key')));
     return NextResponse.json({ id: sb.id });
   }
 

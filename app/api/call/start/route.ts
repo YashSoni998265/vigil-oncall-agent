@@ -20,6 +20,10 @@ export async function POST(request: NextRequest) {
   const cert = process.env.NEXT_AGORA_APP_CERTIFICATE;
   if (!appId || !cert) return NextResponse.json({ error: 'Agora credentials are not configured' }, { status: 500 });
 
+  const c = sb.call;
+  if (c?.status === 'active' && c.agentId && c.lastSeenAt && Date.now() - Date.parse(c.lastSeenAt) < 35_000) {
+    return NextResponse.json({ error: 'You are already on this call in another tab.' }, { status: 409 });
+  }
   const gate = await canStartCall(sb, isOwner(request.headers.get('x-owner-key')));
   if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 

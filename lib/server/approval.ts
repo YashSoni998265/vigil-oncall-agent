@@ -31,7 +31,9 @@ export type ApprovalVerdict =
 export function classifyApproval(raw: string): { ok: true } | { ok: false; reason: 'empty' | 'question' | 'negative' | 'hedge' | 'not_affirmative'; message: string } {
   const text = raw.trim();
   if (!text) return { ok: false, reason: 'empty', message: 'No approval was given.' };
-  if (/\?\s*$/.test(text) || QUESTION_START.test(normalizeWords(text))) {
+  const words = normalizeWords(text);
+  const imperativeDo = /^do (it|that|this|so)\b/.test(words);
+  if (/\?\s*$/.test(text) || (QUESTION_START.test(words) && !imperativeDo)) {
     return { ok: false, reason: 'question', message: 'That was a question, not an approval.' };
   }
   if (NEGATE.test(text)) return { ok: false, reason: 'negative', message: 'The engineer said no or asked to wait.' };

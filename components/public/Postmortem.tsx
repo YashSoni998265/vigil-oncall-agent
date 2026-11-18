@@ -150,7 +150,15 @@ function Doc({ sb }: { sb: Sandbox }) {
           <tbody className="divide-y divide-slate-100">
             {inc.followUps.map((f) => (
               <tr key={f.key}>
-                <td className="py-2 pr-3 font-mono">{f.key}</td>
+                <td className="py-2 pr-3 font-mono">
+                  {f.url ? (
+                    <a href={f.url} className="text-sky-700 underline" target="_blank" rel="noreferrer">
+                      {f.key}
+                    </a>
+                  ) : (
+                    f.key
+                  )}
+                </td>
                 <td className="py-2 pr-3">{f.title}</td>
                 <td className="py-2 pr-3">{f.owner}</td>
                 <td className="py-2">{f.priority}</td>

@@ -39,7 +39,7 @@ const STALE_CALL_MS = 35_000;
 const INVESTIGATION_MS = 3_200;
 
 export const MAX_CALLS_PER_SANDBOX = Number(process.env.MAX_CALLS_PER_SANDBOX ?? 6);
-export const DAILY_CALL_CAP = Number(process.env.DAILY_CALL_CAP ?? 150);
+export const DAILY_CALL_CAP = Number(process.env.DAILY_CALL_CAP ?? 60);
 
 const nowIso = (t = Date.now()) => new Date(t).toISOString();
 const uid = () => randomBytes(6).toString('hex');
@@ -64,7 +64,7 @@ export function pushChannel(sb: Sandbox, author: string, role: ChannelMessage['r
 // ---------------------------------------------------------------------------
 // Sandboxes
 
-export async function newSandbox(engineer?: string): Promise<Sandbox> {
+export async function newSandbox(engineer?: string, owner = false): Promise<Sandbox> {
   const id = Array.from(randomBytes(10), (b) => 'abcdefghijklmnopqrstuvwxyz0123456789'[b % 36]).join('');
   const t = nowIso();
   const sb: Sandbox = {
@@ -81,6 +81,7 @@ export async function newSandbox(engineer?: string): Promise<Sandbox> {
     callsUsed: 0,
     escalatedTo: null,
     incidentCount: 0,
+    owner,
   };
   await createSandboxRecord(sb);
   return sb;

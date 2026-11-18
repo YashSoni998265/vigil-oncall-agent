@@ -12,7 +12,7 @@ const line = (who: CaptionLine['who'], text: string, secondsAgo = 5, extra: Part
 });
 
 test('clear approvals pass', () => {
-  for (const yes of ['Yes, roll it back.', 'yes do it', 'Okay, turn the flag off.', 'Go ahead', 'Approved', 'Yes, fail over to Cashly.', 'Haan, kar do']) {
+  for (const yes of ['Yes, roll it back.', 'yes do it', 'Do it.', 'Do it now', 'Okay, turn the flag off.', 'Go ahead', 'Approved', 'Yes, fail over to Cashly.', 'Haan, kar do']) {
     assert.equal(classifyApproval(yes).ok, true, yes);
   }
 });
@@ -22,6 +22,8 @@ test('questions, hedges and "no / wait" never count as approval', () => {
     ['Should we roll back?', 'question'],
     ['should we roll back', 'question'],
     ['Can you turn the flag off', 'question'],
+    ['Do we need to roll back', 'question'],
+    ['Do it?', 'question'],
     ['No, wait.', 'negative'],
     ["Don't do that yet", 'negative'],
     ['Yes, but hold on', 'negative'],

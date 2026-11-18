@@ -83,11 +83,16 @@ check "A-29 verify_recovery right after the fix: still recovering" '[[ "$r" == *
 r=$(tool "$A" resolve_incident '{"root_cause":"x","summary":"y"}')
 check "A-30 cannot resolve before recovery is verified" '[[ "$r" == *"\"resolved\":false"* ]]' "$r"
 
+echo "== Recovery, then resolve (waits for live metrics, up to ~45 s)"
+for i in $(seq 1 15); do r=$(get "$A" verify_recovery); [[ "$r" == *'"recovered":true'* ]] && break; sleep 3; done
+check "A-51 recovery verified from live metrics about 30 s after the fix" '[[ "$r" == *"\"recovered\":true"* ]]' "$r"
 echo "== Comms and follow-up"
 r=$(tool "$A" update_status_page '{"status":"panic","message":"x"}')
 check "A-31 status page rejects unknown states" '[[ "$r" == *"status must be"* ]]' "$r"
 r=$(tool "$A" update_status_page '{"status":"monitoring","message":"A fix is in place. We are monitoring."}')
 check "A-32 status page update posted" '[[ "$r" == *"posted"* ]]' "$r"
+r=$(tool "$A" update_status_page '{"status":"resolved","message":"All good now."}')
+check "A-55 status page cannot say resolved while the incident is open" '[[ "$r" == *"\"status\":\"monitoring\""* ]]' "$r"
 r=$(tool "$A" page_teammate '{"name":"Arjun","reason":"code fix"}')
 check "A-33 page_teammate pages Arjun" '[[ "$r" == *"Arjun Mehta"* ]]' "$r"
 r=$(tool "$A" page_teammate '{"name":"Elon","reason":"x"}')
@@ -96,6 +101,13 @@ r=$(tool "$A" create_follow_up '{"title":"Null check in CouponEngine","owner":"A
 check "A-35 follow-up ticket created with a key" '[[ "$r" == *"PAY-"* ]]' "$r"
 r=$(tool "$A" post_to_channel '{"message":"Checkout recovering."}')
 check "A-36 post_to_channel" '[[ "$r" == *"posted"* ]]' "$r"
+
+r=$(tool "$A" resolve_incident '{"root_cause":"Coupons without rules crashed CouponEngine.apply.","summary":"Switched off new-coupon-engine after the rollback was blocked."}')
+check "A-52 resolve after recovery: postmortem + follow-ups" '[[ "$r" == *"\"resolved\":true"* && "$r" == *"postmortem_url"* && "$r" == *"PAY-"* ]]' "$r"
+st=$(curl -s "$B/api/sandbox?id=$A")
+check "A-53 status page shows the incident as resolved" '[[ $(echo "$st" | j "[u[\"status\"] for u in d[\"sandbox\"][\"incident\"][\"statusUpdates\"]][-1]") == resolved ]]' "$st"
+r=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/call/start" -H 'Content-Type: application/json' -d "{\"id\":\"$A\"}")
+check "A-54 no new calls once the incident is resolved" '[[ "$r" == 409 ]]' "$r"
 
 echo "== Database incident: injection and unsafe actions"
 C=$(sb '{"action":"create","name":"Priya"}' | j 'd["id"]')

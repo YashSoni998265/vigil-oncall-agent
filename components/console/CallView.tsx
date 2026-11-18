@@ -175,7 +175,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Pr
       if (json === lastSent.current || payload.length === 0) return;
       lastSent.current = json;
       void postJSON('/api/sandbox', { id: sandbox.id, action: 'captions', lines: payload }).catch(() => {});
-    }, 1000);
+    }, 1500);
     return () => clearInterval(id);
   }, [spoken, sandbox.id]);
 

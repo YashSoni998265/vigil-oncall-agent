@@ -17,6 +17,7 @@ import { mutateSandbox, readSandbox } from './store';
 import { approvalNamesOtherAction, verifyApproval } from './approval';
 import { likelyCause, pushAction, pushChannel, type Effect } from './engine';
 import { searchRunbooks } from './runbooks';
+import { createGithubIssue, githubEnabled } from './integrations';
 import {
   defaultFollowUps,
   defaultRootCause,
@@ -362,12 +363,20 @@ async function updateStatusPage(sb: Sandbox, status: StatusPageState, message: s
   if (!sb.incident) return ok(NO_INCIDENT);
   if (!STATUS_STATES.includes(status)) return { status: 400, body: { error: `status must be one of ${STATUS_STATES.join(', ')}` }, effects: [] };
   if (!message) return { status: 400, body: { error: 'message is required' }, effects: [] };
+  // "Resolved" is only said once the incident really is; until then it is "monitoring".
+  const requested = status;
+  if (status === 'resolved' && sb.incident.status !== 'resolved') status = 'monitoring';
   await mutateSandbox(sb.id, (d) => {
     d.incident!.statusUpdates.push({ at: new Date().toISOString(), status, text: message });
     pushAction(d, { tool: 'update_status_page', kind: 'comms', title: `Status page: ${status}`, detail: message });
     pushChannel(d, 'Vigil', 'vigil', `Public status page updated (${status}): "${message}"`);
   });
-  return ok({ posted: true, status, public_url: `${baseUrl()}/status?s=${sb.id}` });
+  return ok({
+    posted: true,
+    status,
+    public_url: `${baseUrl()}/status?s=${sb.id}`,
+    ...(requested !== status ? { note: 'Posted as "monitoring": the incident is not resolved yet. Use resolve_incident; it marks the status page resolved.' } : {}),
+  });
 }
 
 async function postToChannel(sb: Sandbox, message: string): Promise<ToolOutcome> {
@@ -409,7 +418,8 @@ async function createFollowUp(sb: Sandbox, title: string, rawOwner: string, rawP
     pushAction(d, { tool: 'create_follow_up', kind: 'comms', title: `Ticket ${k}: ${title}`, detail: `${owner} · ${priority}` });
     return k;
   });
-  return ok({ created: true, key, owner, priority });
+  const effects = githubEnabled(sb.owner) ? [issueEffect(sb, key, title, owner, priority)] : [];
+  return ok({ created: true, key, owner, priority, ...(effects.length ? { github: 'A real GitHub issue is being opened for this ticket.' } : {}) }, effects);
 }
 
 async function resolveIncident(sb: Sandbox, rootCause: string, summary: string): Promise<ToolOutcome> {
@@ -440,6 +450,10 @@ async function resolveIncident(sb: Sandbox, rootCause: string, summary: string):
     pushChannel(d, 'Vigil', 'vigil', `${di.id} resolved after ${fmtDuration(t - Date.parse(di.faultAt))}. Postmortem draft: ${baseUrl()}/postmortem?s=${d.id} · Review booked for 9:30 AM.`);
     return di.followUps.map((f) => `${f.key} ${f.title} (${f.owner})`);
   });
+  const fresh = await readSandbox(sb.id);
+  const effects = githubEnabled(sb.owner)
+    ? (fresh?.incident?.followUps ?? []).filter((f) => !f.url).map((f) => issueEffect(sb, f.key, f.title, f.owner, f.priority))
+    : [];
   return ok({
     resolved: true,
     duration: fmtDuration(t - Date.parse(inc.faultAt)),
@@ -448,5 +462,28 @@ async function resolveIncident(sb: Sandbox, rootCause: string, summary: string):
     follow_ups: tickets,
     postmortem_url: `${baseUrl()}/postmortem?s=${sb.id}`,
     review: 'Postmortem review booked for 9:30 AM tomorrow.',
-  });
+  }, effects);
+}
+
+/** Opens a real GitHub issue for a follow-up and links it back into the sandbox. */
+function issueEffect(sb: Sandbox, key: string, title: string, owner: string, priority: string): Effect {
+  return async () => {
+    const inc = sb.incident;
+    const body = [
+      `Follow-up from **${inc?.id ?? 'an incident'}**: ${inc?.title ?? ''}`,
+      '',
+      `- Priority: ${priority}`,
+      `- Owner: ${owner}`,
+      `- Postmortem: ${baseUrl()}/postmortem?s=${sb.id}`,
+      '',
+      '_Opened by Vigil, the AI on-call engineer, during a demo incident in a sandbox of Thali (a fictional company)._',
+    ].join('\n');
+    const url = await createGithubIssue(`[${key}] ${title}`, body);
+    if (!url) return;
+    await mutateSandbox(sb.id, (d) => {
+      const f = d.incident?.followUps.find((x) => x.key === key);
+      if (f) f.url = url;
+      pushAction(d, { tool: 'github', kind: 'comms', title: `Opened GitHub issue for ${key}`, detail: url });
+    });
+  };
 }
