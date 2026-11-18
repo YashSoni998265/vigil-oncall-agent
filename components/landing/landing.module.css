@@ -1,0 +1,181 @@
+/*
+ * Landing-page motion. One 12-second loop tells the whole story in the hero chart:
+ * errors spike after a deploy → rollback blocked → flag disabled → recovery.
+ * Base styles are the FINAL state, so reduced motion simply shows the outcome.
+ */
+
+.cycle {
+  animation-duration: 12s;
+  animation-iteration-count: infinite;
+  animation-timing-function: cubic-bezier(0.45, 0, 0.25, 1);
+}
+
+/* --- Chart lines (pathLength="1" so dash maths is 0..1) --- */
+.spike {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation-name: drawSpike;
+}
+.recover {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+  animation-name: drawRecover;
+}
+.dot {
+  animation-name: dotTravel;
+}
+
+@keyframes drawSpike {
+  0% { stroke-dashoffset: 1; opacity: 1; }
+  32% { stroke-dashoffset: 0; }
+  94% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes drawRecover {
+  0%, 58% { stroke-dashoffset: 1; opacity: 1; }
+  80% { stroke-dashoffset: 0; }
+  94% { stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dashoffset: 0; opacity: 0; }
+}
+@keyframes dotTravel {
+  0%, 54% { opacity: 0; }
+  58%, 94% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+/* --- Area wash under the spike --- */
+.spikeArea {
+  animation-name: spikeArea;
+}
+@keyframes spikeArea {
+  0%, 20% { opacity: 0; }
+  34%, 60% { opacity: 1; }
+  78%, 100% { opacity: 0; }
+}
+
+/* --- Chips: rollback blocked, then flag disabled --- */
+.chipBlocked {
+  opacity: 0;
+  animation-name: chipBlocked;
+}
+.chipFixed {
+  opacity: 1;
+  animation-name: chipFixed;
+}
+@keyframes chipBlocked {
+  0%, 36% { opacity: 0; transform: translateY(6px); }
+  40%, 54% { opacity: 1; transform: none; }
+  58%, 100% { opacity: 0; transform: translateY(-4px); }
+}
+@keyframes chipFixed {
+  0%, 56% { opacity: 0; transform: translateY(6px); }
+  60%, 94% { opacity: 1; transform: none; }
+  100% { opacity: 0; }
+}
+
+/* --- Headline value cross-fade: 18.2% (bad) → 0.4% (good) --- */
+.valueBad {
+  opacity: 0;
+  animation-name: valueBad;
+}
+.valueGood {
+  opacity: 1;
+  animation-name: valueGood;
+}
+@keyframes valueBad {
+  0%, 10% { opacity: 0; }
+  16%, 70% { opacity: 1; }
+  74%, 100% { opacity: 0; }
+}
+@keyframes valueGood {
+  0%, 10% { opacity: 1; }
+  16%, 70% { opacity: 0; }
+  74%, 96% { opacity: 1; }
+  100% { opacity: 1; }
+}
+
+/* --- Status pill in the chart header --- */
+.pillBad {
+  opacity: 0;
+  animation-name: valueBad;
+}
+.pillGood {
+  opacity: 1;
+  animation-name: valueGood;
+}
+
+/* --- Phone: "slide to answer" shimmer --- */
+.shimmerText {
+  background: linear-gradient(90deg, rgb(245 245 247 / 0.32) 0%, #ffffff 50%, rgb(245 245 247 / 0.32) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.6s linear infinite;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* --- Phone: voice waveform under the caption --- */
+.wave span {
+  display: block;
+  width: 3px;
+  border-radius: 9999px;
+  background: rgb(139 124 255 / 0.9);
+  animation: wave 1.1s ease-in-out infinite;
+}
+.wave span:nth-child(2) { animation-delay: 0.12s; }
+.wave span:nth-child(3) { animation-delay: 0.24s; }
+.wave span:nth-child(4) { animation-delay: 0.36s; }
+.wave span:nth-child(5) { animation-delay: 0.48s; }
+.wave span:nth-child(6) { animation-delay: 0.6s; }
+.wave span:nth-child(7) { animation-delay: 0.72s; }
+@keyframes wave {
+  0%, 100% { height: 4px; opacity: 0.5; }
+  50% { height: 18px; opacity: 1; }
+}
+
+/* --- Faint grid backdrop for sections --- */
+.grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spike,
+  .recover {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  .dot,
+  .chipFixed,
+  .valueGood,
+  .pillGood {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  .spikeArea,
+  .chipBlocked,
+  .valueBad,
+  .pillBad {
+    animation: none;
+    opacity: 0;
+  }
+  .shimmerText {
+    animation: none;
+    background: none;
+    color: rgb(245 245 247 / 0.8);
+  }
+  .wave span {
+    animation: none;
+    height: 10px;
+  }
+}

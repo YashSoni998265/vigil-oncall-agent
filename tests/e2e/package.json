@@ -1,0 +1,9 @@
+{
+  "name": "vigil-voice-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end voice tests for Vigil: the real Agora + Murf pipeline driven by a fake microphone.",
+  "dependencies": {
+    "puppeteer-core": "^24.43.1"
+  }
+}
