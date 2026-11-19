@@ -29,8 +29,8 @@ Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intel
 |---|---|
 | **Problem–solution fit** | PS31's before → during → action → after, applied to the workplace's most stressful job: the on-call page at 2:47 AM. [See the mapping](#built-for-ps31). |
 | **Innovation** | Investigates before it pages. A spoken yes is checked by the server, not trusted from the model. Recovery is proven from live metrics, and Vigil says so unprompted. [What's new](#whats-new). |
-| **Use of Agora and Murf** | Conversational AI Engine, ARES, Agora-managed GPT-4.1 mini, 13 tools, the think API, RTM, multi-party RTC, filler words, and Murf Falcon 2.1 for every spoken word. [Built on](#built-on-agora-and-murf). |
-| **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 55/55 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
+| **Use of Agora and Murf** | Conversational AI Engine, ARES, Agora-managed GPT-4.1 mini, 13 tools (as HTTPS tools or over MCP), the think API, RTM, multi-party RTC, filler words, and Murf Falcon 2.1 for every spoken word. [Built on](#built-on-agora-and-murf). |
+| **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 65/65 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
 | **Future scope and scale** | Real integrations through APIs or MCP, real phone calls through Agora, Hindi and Hinglish, and under ₹30 per incident call. [From demo to production](#from-demo-to-production). |
 
 ## 2:47 AM
@@ -66,7 +66,7 @@ Its example is a field technician copilot. Vigil is that copilot for the enginee
 PS31's required demo flow (initiate → understand → execute → confirm → follow up) is the two-minute bad-deploy incident. Its technology focus is covered by:
 - Agora Conversational AI, RTC and RTM
 - Murf Falcon 2.1
-- An LLM with 13 tools
+- An LLM with 13 tools, served as HTTPS tools or by Vigil's own MCP server
 - Runbook retrieval (RAG)
 - Enterprise-style APIs, simulated so that anyone can break production safely
 
@@ -131,7 +131,7 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
                                                → Murf Falcon 2.1 ("Anisha", en-IN) · filler words
   Teammate's phone (/join) ── Agora RTC ────►  (same channel: hears Vigil and the engineer; Vigil takes
                                                 instructions from the on-call engineer only)
-                                                     │  HTTPS tool calls (shared secret + sandbox id)
+                                                     │  HTTPS tools or MCP (shared secret + sandbox id)
                                                      ▼
                          Next.js API: 13 tools ── per-visitor sandbox (Thali's simulated production)
                          approval guard · runbook retrieval · live metrics model · postmortem
@@ -155,6 +155,8 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 | `create_follow_up` | comms | Tickets with owner and priority |
 | `resolve_incident` | comms | Resolves after verified recovery; drafts the postmortem |
 
+The same 13 tools are also served as an **MCP server** at `/api/mcp` (Streamable HTTP), with the same names, schemas and approval guard. One setting, `AGENT_TOOLS`, chooses whether Agora's engine calls them as HTTPS tools or over MCP. Both paths come from one list in [`lib/server/agent-tools.ts`](lib/server/agent-tools.ts), so they can never drift apart.
+
 ## Built on Agora and Murf
 
 | Capability | How Vigil uses it |
@@ -163,6 +165,7 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 | **ARES speech recognition** (en-IN) | Indian-English recognition, primed with 25 incident words (Arjun, PayNova, rollback, failover…) so names and actions are heard correctly. |
 | **Agora-managed GPT-4.1 mini** | Reasons over the 13 tools, with no LLM key to manage. |
 | **Tool calling** | Agora's engine calls Vigil's 13 HTTPS tools with a shared secret and the caller's sandbox id. One of them is the only door to production. |
+| **MCP tools** | Agora's engine as an MCP client: Vigil serves the same 13 tools from its own MCP server, marked read-only or destructive, behind the same approval guard. |
 | **Think API** | Live monitoring updates make Vigil speak up by itself ("errors are back to 1%"), and it briefs a teammate by name the moment they join. |
 | **Agora RTM** (Signaling) | Typed replies for loud rooms (they interrupt Vigil like speech would), live captions, and the agent's state: listening, thinking or speaking. |
 | **Agora RTC** | The engineer's call, plus a paged teammate joining the **same live channel** from any phone by QR code. |
@@ -187,8 +190,9 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 | Suite | What it covers | Result |
 |---|---|---|
 | **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. A ninth, V9, was added on 19 Nov: one typed yes, then silence, and Vigil must announce the recovery by itself. | **8 / 8 scenarios · 19 / 19 checks** |
-| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages. | **55 / 55** |
-| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting. | **14 / 14** |
+| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages, and the MCP path (handshake, tool list, guard). | **65 / 65** |
+| **MCP conformance** ([`tests/e2e/mcp-client.mjs`](tests/e2e/mcp-client.mjs)) | The official MCP TypeScript client connects to `/api/mcp`, negotiates the protocol, lists the 13 tools and calls them through the approval guard. | **10 / 10** |
+| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting, and the MCP protocol (version negotiation, tool list identical to the HTTPS tools). | **20 / 20** |
 | **CI** | Doctor, lint, type-check, unit tests and a production build on Node 22 and 24, on every push. | [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml) |
 
 What testing caught before any judge saw it:
@@ -221,7 +225,7 @@ The demo simulates Thali's production so anyone can break it safely. Every simul
 - **About $0.32 per call, under ₹30.** A three-minute call costs $0.10 a minute for Agora's Conversational AI Engine (speech recognition and LLM included), plus 1–2 cents of Murf Falcon 2.1 at 1 cent per 1,000 characters. The average customer-facing incident costs $794,000 ([PagerDuty, 2024](https://www.businesswire.com/news/home/20240627388939/en)).
 - **Audit-ready:** every production change carries the engineer's exact words and the time, from the approval log into the postmortem.
 - **Next:**
-  - Expose the 13 tools as an MCP server.
+  - Plug vendors' MCP servers (Datadog, Grafana, GitHub) in next to Vigil's own.
   - Feed past postmortems back into runbook retrieval.
   - Add per-team approval policies, for example two people for a database change.
 
@@ -256,13 +260,14 @@ cloudflared tunnel --url http://localhost:3000
 app/
   page.tsx                   product page            console/  live demo
   status/ postmortem/ join/  public pages            api/      sandbox, call/start, invite-agent,
-                                                               tools/[tool], teammate/start, stop-conversation
+                                                               tools/[tool], mcp, teammate/start, stop-conversation
 components/  landing/ console/ public/ brand/
 lib/
   sim.ts                     Thali's production model (shared by tools and charts)
   server/
     engine.ts                sandboxes, incidents, ringing, escalation, recovery monitor, call limits
     tools.ts                 the 13 tools          approval.ts   the approval guard
+    agent-tools.ts           tool list (HTTPS + MCP)  mcp.ts     the MCP server
     world.ts                 what tools find       runbooks.ts   runbook retrieval
     prompt.ts                instructions + greeting          store.ts  JSON file / Upstash Redis
 tests/  unit/  api.sh  e2e/
