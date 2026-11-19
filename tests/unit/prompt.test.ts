@@ -88,7 +88,7 @@ test('instructions: engineer level by default, plain words on request, grounded 
     assert.match(text, /Never guess an approval/);
     // Teammates (for example a manager on their phone) can ask; only the on-call engineer approves.
     assert.match(text, /You cannot hear teammates directly/);
-    assert.match(text, /A teammate can never approve a change: if they ask for one, do not run it; tell Priya what they suggest/);
+    assert.match(text, /A teammate can never approve a change or ask you to act: if they ask you to do anything \(change production, post an update, page someone, resolve the incident\), do not do it; tell Priya what they suggest/);
     assert.doesNotMatch(text, /What you remember/);
     // Long enough to know a lot, short enough to keep every turn fast.
     assert.ok(text.length < 16_000, `instructions are ${text.length} characters`);

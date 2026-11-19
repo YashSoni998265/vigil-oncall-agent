@@ -87,7 +87,7 @@ PS31's required demo flow (initiate → understand → execute → confirm → f
 | ✅ **Acts only on your yes** | One tool can change production. The server checks your exact words against the live transcript. Questions, hedges and "no, wait" never execute. One yes authorises one change. |
 | 🔁 **Adapts when a fix fails** | Rollback blocked by an irreversible migration? It says why and offers the next-safest fix from the runbook. |
 | 📈 **Proves recovery** | Never says "fixed" until live metrics are back at baseline; tells you on its own when they are. |
-| 👥 **Brings the team in** | "Add Arjun to the call": his phone rings, he joins the **same live call** (Agora RTC), and Vigil briefs him. One voice stays in command: Vigil takes instructions only from the on-call engineer. |
+| 👥 **Brings the team in** | "Add Arjun to the call": his phone rings, he joins the **same live call** (Agora RTC), and Vigil briefs him. Arjun can ask Vigil anything from his phone, like the impact, the ETA or the risk, and Vigil answers out loud for everyone. One voice stays in command: only the on-call engineer approves changes. |
 | 📣 **Closes the loop** | Public status page, incident channel, follow-up tickets with owners (optionally opened as **real GitHub issues**), a blameless postmortem with timeline and approvals. |
 | ⏰ **Never drops a page** | No answer in 30 s: rings again, then pages the secondary on-call with the full diagnosis. |
 
@@ -168,7 +168,7 @@ The same 13 tools are also served as an **MCP server** at `/api/mcp` (Streamable
 | **Agora-managed GPT-4.1 mini** | Reasons over the 13 tools, with no LLM key to manage. |
 | **Tool calling** | Agora's engine calls Vigil's 13 HTTPS tools with a shared secret and the caller's sandbox id. One of them is the only door to production. |
 | **MCP tools** | Agora's engine as an MCP client: Vigil serves the same 13 tools from its own MCP server, marked read-only or destructive, behind the same approval guard. |
-| **Think API** | Live monitoring updates make Vigil speak up by itself ("errors are back to 1%"), and it briefs a teammate by name the moment they join. |
+| **Think API** | Live monitoring updates make Vigil speak up by itself ("errors are back to 1%"). It briefs a teammate by name the moment they join, and turns a teammate's typed question into a spoken answer for everyone. |
 | **Agora RTM** (Signaling) | Typed replies for loud rooms (they interrupt Vigil like speech would), live captions, and the agent's state: listening, thinking or speaking. |
 | **Agora RTC** | The engineer's call, plus a paged teammate joining the **same live channel** from any phone by QR code. |
 | **Turn detection and interruption** | Voice-activity detection tuned for quick barge-in (220 ms) and natural pauses (560 ms). |
@@ -182,19 +182,20 @@ The same 13 tools are also served as an **MCP server** at `/api/mcp` (Streamable
 1. **One door to production.** Only `execute_remediation` changes anything, from an allow-list per incident.
 2. **Spoken approval is checked by the server**, not trusted from the model: the quote must be a clear yes, said or typed by a human in the last two minutes of the live transcript ([`lib/server/approval.ts`](lib/server/approval.ts)).
 3. **One yes authorises one change**, and a yes for one action ("roll it back") can never approve another ("switch off the flag").
-4. **Unsafe actions are refused with a reason** (restarting the primary database mid-incident).
-5. **Verify before claiming success**; recovery comes from metrics, not the model.
-6. **Untrusted text stays data** (prompt-injection test built into the database incident).
-7. **Idempotent and audited**: every tool call, approval quote and refusal is on screen and in the postmortem.
+4. **One voice in command.** Only the on-call engineer's own words, spoken or typed, can approve. Teammates on the call can ask Vigil anything from their phone, but their words never count as approval, and Vigil relays any request to the engineer.
+5. **Unsafe actions are refused with a reason** (restarting the primary database mid-incident).
+6. **Verify before claiming success**; recovery comes from metrics, not the model.
+7. **Untrusted text stays data** (prompt-injection test built into the database incident).
+8. **Idempotent and audited**: every tool call, approval quote and refusal is on screen and in the postmortem.
 
 ## Tested end to end
 
 | Suite | What it covers | Result |
 |---|---|---|
 | **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. A ninth, V9, was added on 19 Nov: one typed yes, then silence, and Vigil must announce the recovery by itself. A tenth, V10, types the questions a judge would ask: evidence, plan B, risk and undo, plain words, who built it, and an off-topic question. None of them may change production. | **8 / 8 scenarios · 19 / 19 checks**, and V10 (a judge's cross-questions, typed into a live call): **7 / 7** |
-| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages, the MCP path (handshake, tool list, guard), and memory of past incidents. | **70 / 70** |
+| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages, the MCP path (handshake, tool list, guard), memory of past incidents, and teammate questions. | **72 / 72** |
 | **MCP conformance** ([`tests/e2e/mcp-client.mjs`](tests/e2e/mcp-client.mjs)) | The official MCP TypeScript client connects to `/api/mcp`, negotiates the protocol, lists the 13 tools and calls them through the approval guard. | **10 / 10** |
-| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting, the MCP protocol (version negotiation, tool list identical to the HTTPS tools), and what Vigil is told (engineer level by default, plain words on request, grounded "what ifs", memory). | **24 / 24** |
+| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting, the MCP protocol (version negotiation, tool list identical to the HTTPS tools), what Vigil is told (engineer level by default, plain words on request, grounded "what ifs", memory), and teammates: a teammate's yes never approves, and their question path runs end to end against the store. | **27 / 27** |
 | **CI** | Doctor, lint, type-check, unit tests and a production build on Node 22 and 24, on every push. | [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml) |
 
 What testing caught before any judge saw it:
@@ -236,7 +237,7 @@ The demo simulates Thali's production so anyone can break it safely. Every simul
 | Ring the engineer's real phone through Agora's SIP calling | A live call over Agora RTC; teammates already join from any phone |
 | Hindi and Hinglish conversations | Anisha, on Falcon 2.1, already speaks ten Indian locales |
 | Explain any incident to anyone, from a junior engineer to the CEO | Plain-language explanations on request |
-| Two-person approval for risky changes, per-team policies | One yes allows one change, checked by the server |
+| Two-person approval for risky changes, per-team policies | One yes allows one change, checked by the server; teammates already ask Vigil questions from their phone while only the on-call engineer approves |
 | Fix low-risk issues automatically, then report by voice | Vigil already speaks up by itself when live metrics change |
 | Speaker lock for noisy rooms | Agora's SDK supports it (Selective Attention Locking). It isn't switched on yet, because we only ship what we've tested. |
 
