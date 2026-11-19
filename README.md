@@ -74,7 +74,7 @@ The fix is usually minutes. **Finding it, at night, alone, takes the rest.** Tod
 
 ## Try it
 
-**Live demo:** _hosted link added at deployment_. Or run it locally in two minutes ([Run it](#run-it)). Then pick an incident and **break production (safely)**. Every visitor gets a private sandbox of Thali, a fictional food-delivery company, so nothing real is harmed and visitors never collide.
+**Live demo: [vigil-oncall.vercel.app](https://vigil-oncall.vercel.app)** (Chrome with a microphone works best; you can also type your replies). Open the console, pick an incident and **break production (safely)**. Every visitor gets a private sandbox of Thali, a fictional food-delivery company, so nothing real is harmed and visitors never collide. Prefer your own machine? [Run it](#run-it) locally in two minutes.
 
 | Incident | What it tests |
 |---|---|
@@ -163,7 +163,7 @@ cloudflared tunnel --url http://localhost:3000
 
 **Real GitHub issues (optional):** set `GITHUB_TOKEN` (fine-grained, Issues read/write on one repo) and `GITHUB_ISSUES_REPO`; follow-ups Vigil creates are also opened as GitHub issues, linked from the console and the postmortem. On a public link this runs only for the owner's sandboxes.
 
-**Deploy on Vercel:** import the repo, add the variables from `env.local.example`, connect Upstash Redis (Storage tab), set `PUBLIC_BASE_URL` to the deployment URL. Functions run in Mumbai (`vercel.json`). Public-demo limits (calls per sandbox, daily cap, 5-minute calls) protect your Agora minutes and Murf credits; `/console?owner=<OWNER_KEY>` skips them on your own devices.
+**Deploy on Vercel:** import the repo, add the variables from `env.local.example`, and connect Upstash Redis from the Storage tab (free plan; switch off auto-upgrade to stay free). Set `PUBLIC_BASE_URL` to the production domain (`https://<project>.vercel.app`), not a per-deployment URL: Vercel puts those behind a login, and Agora's cloud must reach the tools. Functions run in Mumbai (`vercel.json`). Public-demo limits (calls per sandbox, `DAILY_CALL_CAP`, 5-minute calls) protect your Agora minutes and Murf credits; `/console?owner=<OWNER_KEY>` skips them on your own devices, and the owner's calls don't count toward the daily cap.
 
 ## Project map
 
