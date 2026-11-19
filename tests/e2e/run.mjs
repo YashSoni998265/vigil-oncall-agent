@@ -42,6 +42,8 @@ const SCENARIOS = {
   V6_missed: { incident: 'upi_provider', audio: 'silence', flow: 'missed', duration: 82 },
   V7_typed: { incident: 'bad_deploy', audio: 'silence', duration: 80, typed: [[24, 'Yes, roll it back.'], [48, 'Okay, turn the flag off.']] },
   V8_heartbeat: { incident: 'db_overload', audio: 'silence', duration: 16, skipEnd: true, postWait: 42 },
+  // One typed yes, then total silence: Vigil must speak up by itself when live metrics confirm recovery.
+  V9_announce: { incident: 'bad_deploy', audio: 'silence', duration: 72, typed: [[16, 'Okay, turn the flag off.']] },
   // Not a test: a typed run that captures README screenshots of a live call.
   S_screens: {
     incident: 'bad_deploy',
@@ -86,6 +88,17 @@ const CHECKS = {
     ['typed yes → flag switched off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
   ],
   V8_heartbeat: (h) => [['closing the tab ends the call (heartbeat)', h.call?.status === 'ended' && h.call.endReason === 'connection_lost']],
+  V9_announce: (h) => {
+    const rec = h.incident?.recoveredAt ? Date.parse(h.incident.recoveredAt) : null;
+    const after = rec ? h.transcript.filter((l) => Date.parse(l.at) > rec) : [];
+    const spoke = after.find((l) => l.who === 'agent');
+    const prompted = spoke ? after.some((l) => l.who !== 'agent' && Date.parse(l.at) <= Date.parse(spoke.at)) : false;
+    return [
+      ['flag switched off after a typed yes', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+      ['recovery confirmed from live metrics during the call', Boolean(rec && h.incident.recoveryAnnounced)],
+      [`Vigil announced the recovery unprompted${spoke ? `: "${spoke.text.slice(0, 90)}"` : ''}`, Boolean(spoke) && !prompted],
+    ];
+  },
 };
 
 async function runScenario(name) {

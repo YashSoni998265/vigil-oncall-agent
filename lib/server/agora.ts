@@ -38,8 +38,13 @@ function convoAIAuth(channel: string) {
 }
 
 /**
- * Give the live agent new information mid-call (for example "Rahul approved the refill").
- * The LLM turns it into a natural reply in the parent's language.
+ * Give the live agent new information mid-call (for example "errors are back to 0.9%"),
+ * which the LLM turns into a natural spoken reply.
+ *
+ * When the agent is listening (the engineer is quiet, waiting), the update has to start a
+ * new turn ('interrupt'): 'inject' only attaches it to the engineer's *next* turn, so Vigil
+ * stayed silent until they spoke again. While the agent is thinking or speaking, the update
+ * waits for the current reply to finish ('append'), so it never cuts Vigil off mid-sentence.
  */
 export async function agentThink(agentId: string, channel: string, text: string): Promise<void> {
   const client = createAgoraClient();
@@ -48,7 +53,7 @@ export async function agentThink(agentId: string, channel: string, text: string)
       appid: agoraAppId(),
       agentId,
       text,
-      on_listening_action: 'inject',
+      on_listening_action: 'interrupt',
       on_thinking_action: 'append',
       on_speaking_action: 'append',
       interruptable: true,
