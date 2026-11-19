@@ -69,6 +69,8 @@ test('instructions: engineer level by default, plain words on request, grounded 
     assert.match(text, /By default speak at an engineer's level/);
     assert.match(text, /explain simply, says they are new, or asks what a word means, switch to plain words/);
     assert.match(text, /Fix options for this incident/);
+    // Knowing a fix will be refused must never replace trying it: the server's answer is what counts.
+    assert.match(text, /always run it through execute_remediation, even if you expect it to be refused/);
     assert.match(text, /Plan B/);
     assert.match(text, /"What if" questions/);
     assert.match(text, /a "what if" question never runs a change/);
