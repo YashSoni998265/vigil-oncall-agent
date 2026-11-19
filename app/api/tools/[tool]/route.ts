@@ -7,6 +7,9 @@ import { SANDBOX_ID } from '@/lib/server/store';
 // Agora's Conversational AI Engine calls these endpoints when the LLM uses a tool.
 // The shared secret and the visitor's sandbox id arrive as headers (template variables).
 
+// The approval check may wait a few seconds for captions; keep the function alive past Vercel's default.
+export const maxDuration = 30;
+
 function authorized(request: NextRequest): boolean {
   const secret = process.env.TOOL_SECRET ?? '';
   const given = request.headers.get('x-tool-secret') ?? '';

@@ -299,7 +299,9 @@ async function executeRemediation(sb: Sandbox, action: RemediationAction, rawTar
     });
   }
   let verdict = verifyApproval(quote, sb.transcript, Date.now());
-  for (let i = 0; i < 7 && !verdict.ok && verdict.reason === 'not_heard'; i++) {
+  // Captions reach the server from the engineer's browser; give a slow or retried sync up to ~5.5 s
+  // (well inside Agora's 10 s tool timeout) before deciding the yes was never said.
+  for (let i = 0; i < 11 && !verdict.ok && verdict.reason === 'not_heard'; i++) {
     await new Promise((r) => setTimeout(r, 500));
     const fresh = await readSandbox(sb.id);
     if (fresh) verdict = verifyApproval(quote, fresh.transcript, Date.now());

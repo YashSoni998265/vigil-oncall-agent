@@ -166,22 +166,36 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Pr
     return [...spoken, ...typedLines.filter((t) => !spokenTexts.has(t.text.toLowerCase()))].slice(-10);
   }, [spoken, typedLines]);
 
-  // Share captions with the server every second (the approval check reads them).
+  // Share captions with the server (the approval check reads them). A steady tick sends the latest
+  // lines within ~0.75 s of any change, one request at a time; a lost or failed request is retried on
+  // the next tick, so a spoken "yes" is never dropped by a network blip.
+  const captionsJson = useMemo(() => JSON.stringify(spoken.slice(-10).map((l) => ({ who: l.who, text: l.text }))), [spoken]);
+  const latestCaptions = useRef('[]');
   const lastSent = useRef('');
+  const captionsInFlight = useRef(false);
   useEffect(() => {
-    const payload = spoken.slice(-10).map((l) => ({ who: l.who, text: l.text }));
+    latestCaptions.current = captionsJson;
+  }, [captionsJson]);
+  useEffect(() => {
     const id = setInterval(() => {
-      const json = JSON.stringify(payload);
-      if (json === lastSent.current || payload.length === 0) return;
-      lastSent.current = json;
-      void postJSON('/api/sandbox', { id: sandbox.id, action: 'captions', lines: payload }).catch(() => {});
-    }, 1500);
+      const json = latestCaptions.current;
+      if (captionsInFlight.current || json === lastSent.current || json === '[]') return;
+      captionsInFlight.current = true;
+      postJSON('/api/sandbox', { id: sandbox.id, action: 'captions', lines: JSON.parse(json) }, 4000)
+        .then((r) => {
+          if (r.ok) lastSent.current = json;
+        })
+        .catch(() => {})
+        .finally(() => {
+          captionsInFlight.current = false;
+        });
+    }, 750);
     return () => clearInterval(id);
-  }, [spoken, sandbox.id]);
+  }, [sandbox.id]);
 
   // Heartbeat: the server ends the call if this screen goes away.
   useEffect(() => {
-    const id = setInterval(() => void postJSON('/api/sandbox', { id: sandbox.id, action: 'heartbeat' }).catch(() => {}), 10_000);
+    const id = setInterval(() => void postJSON('/api/sandbox', { id: sandbox.id, action: 'heartbeat' }, 8000).catch(() => {}), 10_000);
     return () => clearInterval(id);
   }, [sandbox.id]);
 

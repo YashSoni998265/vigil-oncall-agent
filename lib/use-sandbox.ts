@@ -25,12 +25,30 @@ export function ownerHeaders(): Record<string, string> {
   return key ? { 'x-owner-key': key } : {};
 }
 
-export async function postJSON<T = Record<string, unknown>>(path: string, body: unknown): Promise<{ ok: boolean; status: number; data: T }> {
-  const res = await fetch(path, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
-    body: JSON.stringify(body),
-  });
+/**
+ * fetch with a deadline. On flaky Wi-Fi a request can hang for ~40 s before the browser gives up;
+ * failing fast lets the caller retry at once instead of freezing the console.
+ */
+export async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(input, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export async function postJSON<T = Record<string, unknown>>(path: string, body: unknown, timeoutMs = 15_000): Promise<{ ok: boolean; status: number; data: T }> {
+  const res = await fetchWithTimeout(
+    path,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
+      body: JSON.stringify(body),
+    },
+    timeoutMs,
+  );
   const data = (await res.json().catch(() => ({}))) as T;
   return { ok: res.ok, status: res.status, data };
 }
@@ -42,12 +60,12 @@ export function useSandboxId(): { id: string | null; error: string | null; fresh
 
   const create = useCallback(async () => {
     setError(null);
-    const r = await postJSON<{ id?: string; error?: string }>('/api/sandbox', { action: 'create' });
-    if (r.ok && r.data.id) {
+    const r = await postJSON<{ id?: string; error?: string }>('/api/sandbox', { action: 'create' }).catch(() => null);
+    if (r?.ok && r.data.id) {
       safeSet(STORAGE_KEY, r.data.id);
       setId(r.data.id);
     } else {
-      setError(r.data.error ?? 'Could not create your sandbox.');
+      setError(r?.data.error ?? 'Could not create your sandbox. Check your connection and reload the page.');
     }
   }, []);
 
@@ -63,11 +81,17 @@ export function useSandboxId(): { id: string | null; error: string | null; fresh
     const candidate = fromUrl && /^[a-z0-9]{10}$/.test(fromUrl) ? fromUrl : safeGet(STORAGE_KEY);
     (async () => {
       if (candidate) {
-        const res = await fetch(`/api/sandbox?id=${candidate}`, { cache: 'no-store' }).catch(() => null);
-        if (res?.ok) {
-          safeSet(STORAGE_KEY, candidate);
-          setId(candidate);
-          return;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          const res = await fetchWithTimeout(`/api/sandbox?id=${candidate}`, { cache: 'no-store' }, 6000).catch(() => null);
+          if (res?.ok) {
+            safeSet(STORAGE_KEY, candidate);
+            setId(candidate);
+            return;
+          }
+          // 404/400: the sandbox expired (24 h) or the link is wrong, so start a fresh one.
+          // A network error or 5xx is retried: a blip must never throw away a live incident.
+          if (res && res.status < 500) break;
+          await new Promise((r) => setTimeout(r, 1000));
         }
       }
       await create();
@@ -85,21 +109,26 @@ export function useSandbox(id: string | null) {
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const alive = useRef(true);
   const viewRef = useRef<SandboxView | null>(null);
+  const failures = useRef(0);
 
   const load = useCallback(async () => {
     if (!id) return;
     try {
-      const res = await fetch(`/api/sandbox?id=${id}`, { cache: 'no-store', headers: ownerHeaders() });
+      // A short deadline: a lost poll is abandoned after 5 s and the next one goes out, so the console never freezes.
+      const res = await fetchWithTimeout(`/api/sandbox?id=${id}`, { cache: 'no-store', headers: ownerHeaders() }, 5000);
       if (!res.ok) throw new Error(String(res.status));
       const data = (await res.json()) as SandboxView;
       offset.current = data.now - Date.now();
       viewRef.current = data;
+      failures.current = 0;
       if (alive.current) {
         setView(data);
         setOffline(false);
       }
     } catch {
-      if (alive.current) setOffline(true);
+      failures.current += 1;
+      // One lost request is normal on venue Wi-Fi; only say "connection lost" when it persists.
+      if (alive.current && failures.current >= 2) setOffline(true);
     }
   }, [id]);
 

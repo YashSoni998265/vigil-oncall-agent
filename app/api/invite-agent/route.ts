@@ -7,6 +7,9 @@ import { buildAgentTools } from '@/lib/server/agent-tools';
 import { createAgoraClient } from '@/lib/server/agora';
 import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
 
+// Starting an agent is a few seconds of Agora API calls; never let Vercel's default limit cut it short.
+export const maxDuration = 30;
+
 // Starts Vigil in the engineer's channel:
 // Agora ARES speech recognition (en-IN) → GPT-4.1 mini (Agora-managed) with 13 tools
 // → Murf Falcon text-to-speech (voice "Anusha", en-IN). The agent takes instructions from

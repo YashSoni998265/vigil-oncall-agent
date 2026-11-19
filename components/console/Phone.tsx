@@ -6,7 +6,7 @@ import Link from 'next/link';
 import type { RTMClient } from 'agora-rtm';
 import { CheckCircle2, Loader2, Phone as PhoneIcon, PhoneIncoming, PhoneMissed, PhoneOff, Search } from 'lucide-react';
 import { SCENARIOS, fmtClock } from '@/lib/sim';
-import { ownerHeaders, postJSON } from '@/lib/use-sandbox';
+import { fetchWithTimeout, ownerHeaders, postJSON } from '@/lib/use-sandbox';
 import type { SandboxView } from '@/lib/types';
 import { LogoMark } from '@/components/brand/Logo';
 import type { CallSession } from './CallView';
@@ -94,11 +94,15 @@ export default function Phone({
     const { appId, channel, uid, token } = r.data as Required<typeof r.data>;
     try {
       const [agent, rtmClient] = await Promise.all([
-        fetch('/api/invite-agent', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
-          body: JSON.stringify({ sandbox_id: sb.id, channel_name: channel, requester_id: uid }),
-        }).then(async (res) => {
+        fetchWithTimeout(
+          '/api/invite-agent',
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...ownerHeaders() },
+            body: JSON.stringify({ sandbox_id: sb.id, channel_name: channel, requester_id: uid }),
+          },
+          20_000,
+        ).then(async (res) => {
           const data = (await res.json().catch(() => ({}))) as { agent_id?: string; error?: string };
           if (!res.ok || !data.agent_id) throw new Error(data.error ?? 'Vigil could not join the call.');
           return data as { agent_id: string };
