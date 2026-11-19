@@ -11,17 +11,27 @@ When production breaks, Vigil investigates first, phones the on-call engineer wi
 [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml)
 ![Agora Conversational AI](https://img.shields.io/badge/Agora-Conversational%20AI-099DFD)
 ![Agora RTC + RTM](https://img.shields.io/badge/Agora-RTC%20%2B%20RTM-099DFD)
-![Murf Falcon](https://img.shields.io/badge/Murf-Falcon%20TTS-6C2BD9)
+![Murf Falcon 2.1](https://img.shields.io/badge/Murf-Falcon%202.1-6C2BD9)
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
 ![License](https://img.shields.io/badge/license-MIT-2ea44f)
 
 Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intelligent Action**
 
-[Live demo](#try-it) · [The problem](#the-problem) · [How it works](#how-it-works) · [Safety](#safety-enforced-in-code) · [Tested](#tested-end-to-end) · [Run it](#run-it)
+[Live demo](#try-it) · [PS31 fit](#built-for-ps31) · [How it works](#how-it-works) · [Built on Agora and Murf](#built-on-agora-and-murf) · [Safety](#safety-enforced-in-code) · [Tested](#tested-end-to-end) · [Scale](#from-demo-to-production) · [Run it](#run-it)
 
 </div>
 
 ![Vigil console during an incident](docs/screenshots/console-incident.png)
+
+## At a glance
+
+| Judging criterion | Vigil |
+|---|---|
+| **Problem–solution fit** | PS31's before → during → action → after, applied to the workplace's most stressful job: the on-call page at 2:47 AM. [See the mapping](#built-for-ps31). |
+| **Innovation** | Investigates before it pages. A spoken yes is checked by the server, not trusted from the model. Recovery is proven from live metrics, and Vigil says so unprompted. [What's new](#whats-new). |
+| **Use of Agora and Murf** | Conversational AI Engine, ARES, Agora-managed GPT-4.1 mini, 13 tools, the think API, RTM, multi-party RTC, filler words, and Murf Falcon 2.1 for every spoken word. [Built on](#built-on-agora-and-murf). |
+| **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 55/55 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
+| **Future scope and scale** | Real integrations through APIs or MCP, real phone calls through Agora, Hindi and Hinglish, and under ₹30 per incident call. [From demo to production](#from-demo-to-production). |
 
 ## 2:47 AM
 
@@ -40,7 +50,33 @@ Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intel
 
 The fix is usually minutes. **Finding it, at night, alone, takes the rest.** Today's AI SRE tools (Resolve AI, Datadog Bits AI SRE, PagerDuty's agents) work in text and Slack and mostly stop at suggestions. Vigil is voice-first and acts, safely.
 
+## Built for PS31
+
+PS31 asks: *"How can real-time voice AI improve workplace productivity by enabling employees to access information, resolve issues, automate repetitive tasks, and complete business workflows through natural, hands-free conversations?"*
+
+Its example is a field technician copilot. Vigil is that copilot for the engineers who keep software running. It follows the same four steps, in the one job where hands-free matters most.
+
+| PS31 step | Field technician (PS31's example) | Vigil, for the on-call engineer |
+|---|---|---|
+| **Before** | Retrieve assigned tickets, equipment history and maintenance records | Reads the alert, live metrics, recent deploys and flags, logs and runbooks, then calls with the cause |
+| **During** | Diagnose through interactive voice troubleshooting | Explains the diagnosis on a live call and answers "why?" or "is it fixed?". You can interrupt it any time, or type. |
+| **Action** | Check parts, raise orders, update tickets or escalate through APIs | Tries a rollback, switches off a feature flag, fails over a provider or pauses a job, each only after your yes. Pages a teammate, and escalates when nobody answers. |
+| **After** | Service reports, updated records, follow-ups | Postmortem, public status page, incident channel, follow-up tickets with owners |
+
+PS31's required demo flow (initiate → understand → execute → confirm → follow up) is the two-minute bad-deploy incident. Its technology focus is covered by:
+- Agora Conversational AI, RTC and RTM
+- Murf Falcon 2.1
+- An LLM with 13 tools
+- Runbook retrieval (RAG)
+- Enterprise-style APIs, simulated so that anyone can break production safely
+
 ## What Vigil does
+
+### What's new
+
+1. **Investigate-first paging.** A pager wakes you with a symptom. Vigil investigates first, so the call starts with the cause and a recommended fix.
+2. **A spoken-consent guard.** The model can't approve its own actions: the server checks your exact words against the live transcript. One yes allows one change, and questions, hedges or "no, wait" never execute.
+3. **Proof of recovery, said unprompted.** Vigil never says "fixed" on hope. It watches live metrics and speaks up the moment they're back at baseline.
 
 | | |
 |---|---|
@@ -90,9 +126,9 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
                  Alert ──► Vigil investigates (read-only tools) ──► phone rings with the diagnosis
                                                                          │
   Engineer's browser (/console)                                          ▼
-  voice + typed messages ──── Agora RTC ────► Agora Conversational AI Engine
-  live captions ◄──────────── Agora RTM ◄────  ARES ASR (en-IN) → GPT-4.1 mini (Agora-managed)
-                                               → Murf Falcon TTS ("Anusha", en-IN) · filler words
+  voice ───────────────────── Agora RTC ────► Agora Conversational AI Engine
+  typed replies, captions ◄─► Agora RTM ◄────  ARES ASR (en-IN) → GPT-4.1 mini (Agora-managed)
+                                               → Murf Falcon 2.1 ("Anisha", en-IN) · filler words
   Teammate's phone (/join) ── Agora RTC ────►  (same channel: hears Vigil and the engineer; Vigil takes
                                                 instructions from the on-call engineer only)
                                                      │  HTTPS tool calls (shared secret + sandbox id)
@@ -119,6 +155,23 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 | `create_follow_up` | comms | Tickets with owner and priority |
 | `resolve_incident` | comms | Resolves after verified recovery; drafts the postmortem |
 
+## Built on Agora and Murf
+
+| Capability | How Vigil uses it |
+|---|---|
+| **Agora Conversational AI Engine** | Runs the whole call in Agora's cloud: speech in, reasoning, speech out, and interruptions. There are no media servers for us to run. |
+| **ARES speech recognition** (en-IN) | Indian-English recognition, primed with 25 incident words (Arjun, PayNova, rollback, failover…) so names and actions are heard correctly. |
+| **Agora-managed GPT-4.1 mini** | Reasons over the 13 tools, with no LLM key to manage. |
+| **Tool calling** | Agora's engine calls Vigil's 13 HTTPS tools with a shared secret and the caller's sandbox id. One of them is the only door to production. |
+| **Think API** | Live monitoring updates make Vigil speak up by itself ("errors are back to 1%"), and it briefs a teammate by name the moment they join. |
+| **Agora RTM** (Signaling) | Typed replies for loud rooms (they interrupt Vigil like speech would), live captions, and the agent's state: listening, thinking or speaking. |
+| **Agora RTC** | The engineer's call, plus a paged teammate joining the **same live channel** from any phone by QR code. |
+| **Turn detection and interruption** | Voice-activity detection tuned for quick barge-in (220 ms) and natural pauses (560 ms). |
+| **Filler words** | "Checking now." while a tool runs, so there's never dead air. |
+| **Agora client toolkit and UIKit** | Transcripts, typed messages and the animated agent orb in the console. |
+| **Agora history API** | The voice test harness reads exactly what the agent heard and said. |
+| **Murf Falcon 2.1** | Every word Vigil speaks: voice Anisha (en-IN, the organizers' recommended Indian-English voice), streamed at 24 kHz with about 100 ms to first audio (Murf's figure). |
+
 ## Safety, enforced in code
 
 1. **One door to production.** Only `execute_remediation` changes anything, from an allow-list per incident.
@@ -133,12 +186,44 @@ Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the
 
 | Suite | What it covers | Result |
 |---|---|---|
-| **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. | **8 / 8 scenarios · 19 / 19 checks** |
+| **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. A ninth, V9, was added on 19 Nov: one typed yes, then silence, and Vigil must announce the recovery by itself. | **8 / 8 scenarios · 19 / 19 checks** |
 | **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages. | **55 / 55** |
 | **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting. | **14 / 14** |
 | **CI** | Doctor, lint, type-check, unit tests and a production build on Node 22 and 24, on every push. | [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml) |
 
-What testing caught before any judge saw it: an over-cautious agent that re-asked for approval and read internal wording aloud (fixed in the instructions, while the server keeps enforcing safety), a regex that missed "roll **it** back", a recovery claim made at 1.6% instead of near baseline, a console that scrolled the page whenever Vigil posted, and an agent that tried to treat "Should we roll back?" as a yes, which the server blocked, as designed.
+What testing caught before any judge saw it:
+- An over-cautious agent that re-asked for approval and read internal wording aloud. This was fixed in the instructions, while the server keeps enforcing safety.
+- A regex that missed "roll **it** back".
+- A recovery claim made at 1.6% instead of near baseline.
+- A console that scrolled the page whenever Vigil posted.
+- An agent that tried to treat "Should we roll back?" as a yes, which the server blocked, as designed.
+- From a manual run on the live site: a recovery update that waited for the engineer to speak first. Agora's think API was set to `inject` instead of `interrupt`.
+- Also from that run: side tabs that were clipped on laptop screens.
+
+## From demo to production
+
+**Who it's for:** any team that runs software around the clock. In India that means UPI and fintech, quick commerce, food delivery and ticketing, where minutes of downtime cost lakhs of rupees.
+
+The demo simulates Thali's production so anyone can break it safely. Every simulated piece sits behind the same HTTPS tool contract that real systems plug into:
+
+| Piece | In the demo | In production |
+|---|---|---|
+| Alert | A simulated alert in each visitor's sandbox | A PagerDuty, Opsgenie or Prometheus Alertmanager webhook |
+| Investigation | A deterministic model of Thali's metrics, logs, deploys and runbooks | Datadog, Grafana, Prometheus, Loki and GitHub Actions or Argo CD, through their APIs or MCP servers (Agora's engine accepts MCP servers alongside HTTPS tools) |
+| Fixes | Rollback, feature flag, provider failover, pause job, all behind the approval guard | The same guard in front of real rollbacks, LaunchDarkly or Unleash flags, and payment-router config |
+| Communication | Built-in status page, channel and tickets; follow-ups can already be opened as real GitHub issues | Atlassian Statuspage, Slack or Teams, Jira, Linear or GitHub |
+| The call | A browser phone over Agora RTC; teammates join from any phone | The engineer's real phone through Agora's outbound calling (SIP), with the browser as fallback |
+| Language | Indian English | Hindi and Hinglish: on Falcon 2.1, Anisha speaks ten Indian locales, and ARES also recognises Hindi |
+
+**It scales by design:**
+- **Stateless:** serverless functions with Redis for state. Each incident is isolated the way each visitor's sandbox is today.
+- **No media servers to operate:** agents run in Agora's cloud. Murf rates Falcon 2.1 for 10,000+ concurrent calls.
+- **About $0.32 per call, under ₹30.** A three-minute call costs $0.10 a minute for Agora's Conversational AI Engine (speech recognition and LLM included), plus 1–2 cents of Murf Falcon 2.1 at 1 cent per 1,000 characters. The average customer-facing incident costs $794,000 ([PagerDuty, 2024](https://www.businesswire.com/news/home/20240627388939/en)).
+- **Audit-ready:** every production change carries the engineer's exact words and the time, from the approval log into the postmortem.
+- **Next:**
+  - Expose the 13 tools as an MCP server.
+  - Feed past postmortems back into runbook retrieval.
+  - Add per-team approval policies, for example two people for a database change.
 
 ## Run it
 
@@ -185,6 +270,6 @@ tests/  unit/  api.sh  e2e/
 
 ## Credits
 
-Built on Agora's [Conversational AI Next.js quickstart](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-nextjs) (MIT). Voice by [Murf Falcon](https://murf.ai/api/docs/text-to-speech-models/falcon-2-1). Thali, its people and its production are fictional; the Agora and Murf pipeline is real.
+Built on Agora's [Conversational AI Next.js quickstart](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-nextjs) (MIT). Voice by [Murf Falcon 2.1](https://murf.ai/api/docs/text-to-speech-models/falcon-2-1) (Anisha). Thali, its people and its production are fictional; the Agora and Murf pipeline is real.
 
 Released under the [MIT License](LICENSE).
