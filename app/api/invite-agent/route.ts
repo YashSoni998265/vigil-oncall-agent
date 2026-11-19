@@ -12,10 +12,12 @@ export const maxDuration = 30;
 
 // Starts Vigil in the engineer's channel:
 // Agora ARES speech recognition (en-IN) → GPT-4.1 mini (Agora-managed) with 13 tools
-// → Murf Falcon text-to-speech (voice "Anusha", en-IN). The agent takes instructions from
+// → Murf Falcon 2.1 text-to-speech (voice "Anisha", en-IN). The agent takes instructions from
 // the on-call engineer; a paged teammate can join the same channel and hear the call.
 
-const MURF_VOICE_ID = process.env.MURF_VOICE_ID ?? 'Anusha';
+// Anisha is the organizers' recommended Indian-English voice; she also speaks Hindi, Hinglish
+// and seven more Indian languages on Falcon 2.1.
+const MURF_VOICE_ID = process.env.MURF_VOICE_ID ?? 'Anisha';
 const MURF_LOCALE = 'en-IN';
 const MURF_WS_URL = 'wss://global.api.murf.ai/v1/speech/stream-input';
 const agentUid = String(DEFAULT_AGENT_UID);
@@ -101,7 +103,8 @@ export async function POST(request: NextRequest) {
           key: murfApiKey,
           voiceId: MURF_VOICE_ID,
           locale: MURF_LOCALE,
-          model: 'FALCON',
+          // Murf's current streaming model ('FALCON' is an older alias for the same model).
+          model: 'falcon-2.1',
           baseUrl: MURF_WS_URL,
           sampleRate: 24000,
         }),

@@ -14,7 +14,7 @@ const PIPELINE = [
   {
     icon: Cpu,
     title: 'Agora Conversational AI',
-    body: 'ARES speech recognition (en-IN) → GPT-4.1 mini → Murf Falcon voice “Anusha”.',
+    body: 'ARES speech recognition (en-IN) → GPT-4.1 mini → Murf Falcon 2.1 voice “Anisha”.',
   },
   {
     icon: Smartphone,
@@ -27,7 +27,7 @@ const BADGES = [
   'Agora Conversational AI Engine',
   'Agora RTC',
   'Agora RTM',
-  'Murf Falcon 2.1 · “Anusha” en-IN',
+  'Murf Falcon 2.1 · “Anisha” en-IN',
   'GPT-4.1 mini · Agora-managed',
   'ARES speech recognition · en-IN',
   '13 custom HTTPS tools',
