@@ -38,7 +38,8 @@ export async function POST(request: NextRequest) {
     if (sb.call?.status !== 'active' || !channel.startsWith(`vigil-${id}-`)) {
       return NextResponse.json({ error: 'Answer the call first.' }, { status: 409 });
     }
-    const gate = await canStartCall(sb, isOwner(request.headers.get('x-owner-key')));
+    const owner = isOwner(request.headers.get('x-owner-key'));
+    const gate = await canStartCall(sb, owner);
     if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
 
     const murfApiKey = process.env.MURF_API_KEY;
@@ -117,7 +118,7 @@ export async function POST(request: NextRequest) {
     });
 
     const agentId = await session.start();
-    await markAgentStarted(id, { agentId, channel, engineerUid: requester });
+    await markAgentStarted(id, { agentId, channel, engineerUid: requester }, owner);
     return NextResponse.json({ agent_id: agentId, create_ts: Math.floor(Date.now() / 1000), state: 'RUNNING' });
   } catch (error) {
     console.error('Error starting Vigil:', error);

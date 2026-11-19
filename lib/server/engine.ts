@@ -429,8 +429,9 @@ export async function answerCall(id: string): Promise<void> {
   });
 }
 
-export async function markAgentStarted(id: string, info: { agentId: string; channel: string; engineerUid: string }): Promise<void> {
-  await incrementDailyCalls();
+export async function markAgentStarted(id: string, info: { agentId: string; channel: string; engineerUid: string }, owner = false): Promise<void> {
+  // The owner's own rehearsals never use up the shared daily cap that protects public visitors.
+  if (!owner) await incrementDailyCalls();
   await mutateSandbox(id, (d) => {
     if (!d.call) return;
     d.call.agentId = info.agentId;
