@@ -66,6 +66,16 @@ test('one yes authorises one change', () => {
   assert.equal(verifyApproval('Yes, roll it back', transcript, now).ok, false);
 });
 
+test("a teammate's words never approve a change: one voice in command", () => {
+  // Arjun (on the call from his phone) says yes: not an approval.
+  assert.equal(verifyApproval('Yes, roll it back', [line('teammate', 'Yes, roll it back.')], now).ok, false);
+  // The on-call engineer's own yes still works, even with the teammate's line nearby.
+  const both = [line('teammate', 'Yes, roll it back.', 10), line('engineer', 'Yes, roll it back.', 5)];
+  const verdict = verifyApproval('Yes, roll it back', both, now);
+  assert.equal(verdict.ok, true);
+  assert.equal(verdict.ok && verdict.matched.who, 'engineer');
+});
+
 test('a yes for one action cannot approve a different action', () => {
   assert.equal(approvalNamesOtherAction('Yes, roll it back', 'disable_feature_flag'), 'rollback_deploy');
   assert.equal(approvalNamesOtherAction('Yes, roll it back', 'rollback_deploy'), null);

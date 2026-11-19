@@ -32,10 +32,16 @@ export async function runEffects(effects: Effect[]): Promise<void> {
 }
 
 export const SYSTEM_UPDATE_MARK = '⟦monitor⟧';
+/** Prefix for a question a teammate typed on their phone (injected through the think API). */
+export const TEAMMATE_MARK = '⟦teammate⟧';
+/** Any of Vigil's internal messages. They come back in Agora's transcript as user turns, but no person said them. */
+export const INTERNAL_MARK = /⟦[a-z]+⟧/;
 const RING_MS = 30_000;
 const RETRY_DELAY_MS = 10_000;
 const MAX_RING_ATTEMPTS = 2;
 const STALE_CALL_MS = 35_000;
+const TEAMMATE_ASK_GAP_MS = 4_000;
+const MAX_TEAMMATE_QUESTIONS = 20;
 const INVESTIGATION_MS = 3_200;
 
 export const MAX_CALLS_PER_SANDBOX = Number(process.env.MAX_CALLS_PER_SANDBOX ?? 6);
@@ -183,7 +189,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
       call.teammateAnnounced = true;
       const who = call.teammatePaged?.name ?? PEOPLE.owner.name;
       const { agentId, channel } = call;
-      const text = `${SYSTEM_UPDATE_MARK} ${who} has just joined this call. Greet ${who.split(' ')[0]} by name and brief them in two short sentences: what broke, what has been done, and the current status. Then continue helping both of them.`;
+      const text = `${SYSTEM_UPDATE_MARK} ${who} has just joined this call. Greet ${who.split(' ')[0]} by name and brief them in two short sentences: what broke, what has been done, and the current status. Then tell ${who.split(' ')[0]} in one short sentence that they can ask you questions from their phone, and that ${d.engineer} approves any change. Then continue helping both of them.`;
       effects.push(async () => agentThink(agentId, channel, text));
     }
     return d;
@@ -510,7 +516,7 @@ export async function heartbeat(id: string): Promise<void> {
 /** Merge live captions from the engineer's call screen into the server transcript. */
 export async function mergeCaptions(id: string, lines: { who: string; text: string }[]): Promise<void> {
   const clean = lines
-    .filter((l) => typeof l?.text === 'string' && l.text.trim() && !l.text.includes(SYSTEM_UPDATE_MARK))
+    .filter((l) => typeof l?.text === 'string' && l.text.trim() && !INTERNAL_MARK.test(l.text))
     .slice(-12)
     .map((l) => ({ who: (['agent', 'engineer', 'teammate'].includes(l.who) ? l.who : 'engineer') as CaptionLine['who'], text: l.text.trim().slice(0, 500) }));
   if (clean.length === 0) return;
@@ -547,6 +553,68 @@ export async function teammateJoined(id: string): Promise<void> {
     pushAction(d, { tool: 'bridge', kind: 'system', title: `${who} joined the live call` });
     pushChannel(d, 'Vigil', 'vigil', `${who} joined the incident call.`);
   });
+}
+
+/**
+ * A teammate on the live call (for example a manager without a laptop) asks Vigil a question from
+ * their phone. Agora's engine listens to one person, the on-call engineer, so the question arrives
+ * as text through the think API and Vigil answers out loud for everyone. Teammates can ask anything
+ * but never approve a change: their words are stored as "teammate" lines, which the approval guard
+ * ignores, and Vigil relays any requested change to the on-call engineer.
+ */
+export async function teammateAsk(id: string, raw: string): Promise<{ ok: boolean; status: number; error?: string; effects: Effect[] }> {
+  // Control characters and Vigil's internal marks (⟦…⟧) become spaces, so nobody can fake a monitor message.
+  const text = Array.from(String(raw), (ch) => {
+    const code = ch.charCodeAt(0);
+    return code < 32 || code === 127 || ch === '⟦' || ch === '⟧' ? ' ' : ch;
+  })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+  if (text.length < 2) return { ok: false, status: 400, error: 'Type a question first.', effects: [] };
+  const effects: Effect[] = [];
+  const refused = { status: 0, error: '' };
+  await mutateSandbox(id, (d) => {
+    const call = d.call;
+    if (!call || call.status !== 'active' || !call.agentId || !call.channel) {
+      refused.status = 409;
+      refused.error = 'The call is not live right now.';
+      return;
+    }
+    if (!call.teammateJoinedAt) {
+      refused.status = 409;
+      refused.error = 'Join the call first.';
+      return;
+    }
+    const now = Date.now();
+    const asked = d.transcript.filter((l) => l.who === 'teammate');
+    const last = asked[asked.length - 1];
+    if (last && now - Date.parse(last.at) < TEAMMATE_ASK_GAP_MS) {
+      refused.status = 429;
+      refused.error = 'One moment: Vigil is still answering.';
+      return;
+    }
+    if (asked.length >= MAX_TEAMMATE_QUESTIONS) {
+      refused.status = 429;
+      refused.error = 'That is the question limit for this call.';
+      return;
+    }
+    const who = call.teammatePaged?.name ?? PEOPLE.owner.name;
+    const first = who.split(' ')[0];
+    d.transcript.push({ at: nowIso(now), who: 'teammate', text, typed: true });
+    pushAction(d, {
+      tool: 'ask',
+      kind: 'system',
+      title: `${who} asked Vigil: "${text}"`,
+      detail: `From ${first}'s phone. Teammates can ask anything; only ${d.engineer} can approve changes.`,
+    });
+    const { agentId, channel } = call;
+    const message = `${TEAMMATE_MARK} ${who} is on this call and typed this question on their phone: "${text}". Answer ${first} out loud by name, in two or three sentences, from the incident facts and your tools. ${first} cannot approve production changes: if this asks for a change, do not run it; tell ${d.engineer} what ${first} suggests and ask ${d.engineer} whether to do it.`;
+    effects.push(async () => agentThink(agentId, channel, message));
+  });
+  if (refused.status) return { ok: false, status: refused.status, error: refused.error, effects: [] };
+  return { ok: true, status: 200, effects };
 }
 
 function upperFirst(text: string): string {

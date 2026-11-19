@@ -14,6 +14,7 @@ import {
   resetSandbox,
   runEffects,
   setEngineer,
+  teammateAsk,
   teammateJoined,
   triggerIncident,
   viewSandbox,
@@ -89,6 +90,12 @@ export async function POST(request: NextRequest) {
     case 'teammate_joined':
       await teammateJoined(id);
       return NextResponse.json({ ok: true });
+    case 'teammate_ask': {
+      // A teammate on the call asks Vigil a question from their phone; Vigil answers out loud.
+      const r = await teammateAsk(id, String(body.text ?? ''));
+      if (r.effects.length) after(() => runEffects(r.effects));
+      return NextResponse.json(r.ok ? { ok: true } : { ok: false, error: r.error }, { status: r.status });
+    }
     default:
       return NextResponse.json({ error: `unknown action: ${action}` }, { status: 400 });
   }

@@ -50,7 +50,7 @@ export default function TeammateJoin({ id }: { id: string }) {
         {missing ? (
           <p className="mt-6 text-dim">This incident sandbox doesn’t exist any more.</p>
         ) : join ? (
-          <TeammateCall join={join} id={id} onLeave={() => setJoin(null)} />
+          <TeammateCall join={join} id={id} engineer={sb?.engineer ?? 'the on-call engineer'} onLeave={() => setJoin(null)} />
         ) : (
           <>
             <p className="mt-5 text-[12px] font-semibold uppercase tracking-[0.14em] text-bad">{sb?.incident ? `${sb.incident.severity} · ${sb.incident.id}` : 'Incident call'}</p>

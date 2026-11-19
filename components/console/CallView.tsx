@@ -50,7 +50,9 @@ interface Props {
   onEnd: (reason: 'hangup' | 'time_limit') => void;
 }
 
-const MONITOR_MARK = '⟦monitor⟧';
+// Vigil's internal messages (monitoring updates, teammates' typed questions) come back in Agora's
+// transcript as user turns. Nobody on this call said them, so they are never shown or saved as captions.
+const INTERNAL_MARK = /⟦[a-z]+⟧/;
 
 export default function CallView(props: Props) {
   const [client] = useState<IAgoraRTCClient>(() => AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' }));
@@ -153,7 +155,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Pr
   const spoken: Line[] = useMemo(
     () =>
       transcript
-        .filter((item) => typeof item.text === 'string' && item.text.trim() && !String(item.text).includes(MONITOR_MARK))
+        .filter((item) => typeof item.text === 'string' && item.text.trim() && !INTERNAL_MARK.test(String(item.text)))
         .map((item, i) => ({
           key: `${item.turn_id ?? i}-${item.uid}`,
           who: String(item.uid) === agentUid ? 'agent' : Number(item.uid) === TEAMMATE_UID ? 'teammate' : 'engineer',

@@ -179,6 +179,11 @@ check "A-69 get_incident gives evidence and the earlier incident" '[[ $(echo "$r
 sb "{\"id\":\"$A\",\"action\":\"reset\"}" >/dev/null
 check "A-70 Reset forgets past incidents" '[[ $(curl -s "$B/api/sandbox?id=$A" | j "len(d[\"sandbox\"].get(\"history\") or [])") == 0 ]]' ""
 
+echo "== Teammate questions (anyone on the call can ask; only the engineer approves)"
+T=$(sb '{"action":"create","name":"Priya"}' | j 'd["id"]')
+check "A-71 a teammate question needs a live call" '[[ $(code -X POST "$B/api/sandbox" -H "Content-Type: application/json" -d "{\"id\":\"$T\",\"action\":\"teammate_ask\",\"text\":\"What is the customer impact?\"}") == 409 ]]' ""
+check "A-72 an empty teammate question is rejected" '[[ $(code -X POST "$B/api/sandbox" -H "Content-Type: application/json" -d "{\"id\":\"$T\",\"action\":\"teammate_ask\",\"text\":\"   \"}") == 400 ]]' ""
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

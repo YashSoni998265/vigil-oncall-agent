@@ -56,7 +56,9 @@ function overlap(quote: string, line: string): number {
 export function verifyApproval(quote: string, transcript: CaptionLine[], now: number): ApprovalVerdict {
   const verdict = classifyApproval(quote);
   if (!verdict.ok) return verdict;
-  const recent = transcript.filter((l) => l.who !== 'agent' && !l.usedFor && now - Date.parse(l.at) <= APPROVAL_WINDOW_MS);
+  // Only the on-call engineer's own words (spoken or typed) can approve. Teammates may ask Vigil
+  // questions, but their lines never count: one voice in command.
+  const recent = transcript.filter((l) => l.who === 'engineer' && !l.usedFor && now - Date.parse(l.at) <= APPROVAL_WINDOW_MS);
   const q = normalizeWords(quote);
   const match = [...recent].reverse().find((l) => {
     const line = normalizeWords(l.text);

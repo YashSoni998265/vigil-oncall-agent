@@ -2,21 +2,24 @@
 
 import { useEffect, useState } from 'react';
 import AgoraRTC, { AgoraRTCProvider, RemoteUser, useJoin, useLocalMicrophoneTrack, usePublish, useRemoteUsers, type IAgoraRTCClient } from 'agora-rtc-react';
-import { Mic, MicOff, PhoneOff } from 'lucide-react';
+import { Loader2, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
 import type { Join } from './TeammateJoin';
 
-// The teammate's side of the live incident call: microphone in, everyone else's audio out.
+// The teammate's side of the live incident call: microphone in, everyone else's audio out,
+// and questions for Vigil. Agora's engine listens to one person (the on-call engineer), so a
+// teammate, for example a manager without a laptop, asks by tapping or typing here; Vigil answers
+// out loud for everyone. Teammates can ask anything, but only the on-call engineer approves changes.
 
-export default function TeammateCall({ join, id, onLeave }: { join: Join; id: string; onLeave: () => void }) {
+export default function TeammateCall({ join, id, engineer, onLeave }: { join: Join; id: string; engineer: string; onLeave: () => void }) {
   const [client] = useState<IAgoraRTCClient>(() => AgoraRTC.createClient({ mode: 'rtc', codec: 'vp8' }));
   return (
     <AgoraRTCProvider client={client}>
-      <OnCall join={join} id={id} onLeave={onLeave} />
+      <OnCall join={join} id={id} engineer={engineer} onLeave={onLeave} />
     </AgoraRTCProvider>
   );
 }
 
-function OnCall({ join, id, onLeave }: { join: Join; id: string; onLeave: () => void }) {
+function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engineer: string; onLeave: () => void }) {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let cancelled = false;
@@ -35,11 +38,15 @@ function OnCall({ join, id, onLeave }: { join: Join; id: string; onLeave: () => 
   const remote = useRemoteUsers();
   const [micOn, setMicOn] = useState(true);
   const [announced, setAnnounced] = useState(false);
+  // Questions unlock once the server has recorded the join (it refuses questions before that).
+  const [joinedAck, setJoinedAck] = useState(false);
 
   useEffect(() => {
     if (isConnected && !announced) {
       setAnnounced(true);
-      void fetch('/api/sandbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action: 'teammate_joined' }) });
+      void fetch('/api/sandbox', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, action: 'teammate_joined' }) })
+        .catch(() => {})
+        .finally(() => setJoinedAck(true));
     }
   }, [isConnected, announced, id]);
 
@@ -68,6 +75,108 @@ function OnCall({ join, id, onLeave }: { join: Join; id: string; onLeave: () => 
           <PhoneOff className="h-5 w-5" /> Leave
         </button>
       </div>
+      <AskVigil id={id} engineer={engineer} enabled={isConnected && joinedAck} />
     </div>
+  );
+}
+
+// Questions a manager or senior teammate asks most on an incident call.
+const QUESTIONS = ['What’s the customer impact so far?', 'When will it be fixed?', 'What’s the risk of this fix?', 'Should we tell customers now?', 'Why did this happen?'];
+
+function AskVigil({ id, engineer, enabled }: { id: string; engineer: string; enabled: boolean }) {
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [asked, setAsked] = useState<{ key: number; text: string }[]>([]);
+
+  const ask = async (text: string) => {
+    const clean = text.trim();
+    if (!clean || sending || !enabled) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/sandbox', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, action: 'teammate_ask', text: clean }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? 'Vigil could not take the question. Try again.');
+        return;
+      }
+      setAsked((prev) => [...prev, { key: Date.now(), text: clean }].slice(-3));
+      setDraft('');
+    } catch {
+      setError('Could not reach Vigil. Check your connection and try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <section className="mt-6 border-t border-line/10 pt-5 text-left" data-testid="ask-vigil" aria-labelledby="ask-vigil-title">
+      <p id="ask-vigil-title" className="text-[14px] font-semibold text-ink">
+        Ask Vigil
+      </p>
+      <p className="mt-1 text-[12.5px] leading-relaxed text-dim">Vigil answers out loud for everyone on the call. Only {engineer} can approve changes.</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {QUESTIONS.map((q) => (
+          <button
+            key={q}
+            type="button"
+            onClick={() => void ask(q)}
+            disabled={!enabled || sending}
+            className="rounded-full border border-line/15 bg-raised/60 px-3 py-1.5 text-[12.5px] text-ink transition hover:border-brand/50 disabled:opacity-40"
+            data-testid="ask-chip"
+          >
+            {q}
+          </button>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void ask(draft);
+        }}
+        className="mt-3 flex gap-2"
+      >
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={300}
+          enterKeyHint="send"
+          placeholder="Type, or use your keyboard’s mic"
+          aria-label="Your question for Vigil"
+          disabled={!enabled}
+          className="min-w-0 flex-1 rounded-xl border border-line/15 bg-canvas px-3 py-2.5 text-[14px] text-ink placeholder:text-faint focus:border-brand/60 focus:outline-none disabled:opacity-50"
+          data-testid="ask-input"
+        />
+        <button
+          type="submit"
+          disabled={!enabled || sending || !draft.trim()}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand text-white transition hover:brightness-110 disabled:opacity-40"
+          aria-label="Ask Vigil"
+          data-testid="ask-send"
+        >
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+        </button>
+      </form>
+      {error && (
+        <p className="mt-2 text-[12.5px] text-bad" role="alert">
+          {error}
+        </p>
+      )}
+      {!enabled && !error && <p className="mt-2 text-[12px] text-faint">Questions open once you’re connected.</p>}
+      {asked.length > 0 && (
+        <ul className="mt-3 space-y-1.5" aria-label="Questions you asked">
+          {asked.map((a) => (
+            <li key={a.key} className="text-[12.5px] leading-snug text-dim">
+              <span className="font-medium text-good">Sent</span> · {a.text}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
