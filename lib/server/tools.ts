@@ -24,6 +24,8 @@ import {
   dependencies,
   evaluateRemediation,
   findTeammate,
+  fixPhrase,
+  incidentEvidence,
   logSignatures,
   normalizeTarget,
   recentChanges,
@@ -129,7 +131,11 @@ async function getIncident(sb: Sandbox): Promise<ToolOutcome> {
     failed_orders_so_far: impact.failedOrders,
     revenue_at_risk: fmtINRShort(impact.inr),
     likely_cause: likelyCause(inc.scenario),
-    recommended_fix: def.recommended,
+    recommended_fix: inc.recommended ?? def.recommended,
+    ...(inc.learnedFrom
+      ? { same_as_past_incident: { id: inc.learnedFrom.id, what_fixed_it: inc.learnedFrom.fix, what_did_not_work: inc.learnedFrom.blocked } }
+      : {}),
+    evidence: incidentEvidence(inc),
     fixes_tried: inc.remediations.map((r) => `${r.action} ${r.target}: ${r.outcome}${r.effective ? ' (effective)' : ''}`),
     recovered: Boolean(inc.recoveredAt) || isRecovered(inc, t),
     people: {
@@ -448,6 +454,7 @@ async function resolveIncident(sb: Sandbox, rootCause: string, summary: string):
         di.followUps.push({ key: `${ticketPrefix(f.owner)}-${311 + i}`, ...f, createdAt: new Date(t).toISOString() });
       });
     }
+    rememberIncident(d, t, impact.failedOrders, fmtINRShort(impact.inr));
     pushAction(d, { tool: 'resolve_incident', kind: 'comms', title: `Resolved ${di.id}; postmortem drafted`, detail: `${fmtDuration(t - Date.parse(di.faultAt))} · ${fmtInt(impact.failedOrders)} failed orders · ${fmtINRShort(impact.inr)}` });
     pushChannel(d, 'Vigil', 'vigil', `${di.id} resolved after ${fmtDuration(t - Date.parse(di.faultAt))}. Postmortem draft: ${baseUrl()}/postmortem?s=${d.id} · Review booked for 9:30 AM.`);
     return di.followUps.map((f) => `${f.key} ${f.title} (${f.owner})`);
@@ -488,4 +495,29 @@ function issueEffect(sb: Sandbox, key: string, title: string, owner: string, pri
       pushAction(d, { tool: 'github', kind: 'comms', title: `Opened GitHub issue for ${key}`, detail: url });
     });
   };
+}
+
+/** Memory: what worked, what didn't, and the impact, so a repeat of this failure starts from the fix that worked. */
+function rememberIncident(d: Sandbox, t: number, failedOrders: number, revenue: string): void {
+  const inc = d.incident;
+  if (!inc) return;
+  const worked = inc.remediations.find((r) => r.outcome === 'success' && r.effective);
+  const failed = inc.remediations.find((r) => r.outcome !== 'success');
+  const fix = worked ? fixPhrase(worked.action, worked.target) : { spoken: SCENARIOS[inc.scenario].recommended.toLowerCase(), recommended: SCENARIOS[inc.scenario].recommended };
+  const reason = failed ? failed.note.split(/(?<=\.)\s/)[0].replace(/\.$/, '') : null;
+  const history = (d.history ?? []).filter((h) => h.id !== inc.id);
+  history.push({
+    id: inc.id,
+    scenario: inc.scenario,
+    title: inc.title,
+    resolvedAt: new Date(t).toISOString(),
+    durationMs: t - Date.parse(inc.faultAt),
+    rootCause: inc.rootCause ?? defaultRootCause(inc.scenario),
+    fix: fix.spoken,
+    recommended: fix.recommended,
+    blocked: failed && reason ? `${fixPhrase(failed.action, failed.target).spoken} did not work (${reason})` : null,
+    failedOrders,
+    revenue,
+  });
+  d.history = history.slice(-5);
 }

@@ -168,6 +168,17 @@ check "A-64 MCP unknown tool → JSON-RPC error" '[[ $(echo "$r" | j "d[\"error\
 r=$(curl -s -X POST "$B/api/mcp" -H "x-tool-secret: $SECRET" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_incident","arguments":{}}}')
 check "A-65 MCP tool calls need the sandbox header" '[[ $(echo "$r" | j "d[\"error\"][\"code\"]") == -32602 ]]' "$r"
 
+echo "== Memory (a repeat starts from the fix that worked)"
+sb "{\"id\":\"$A\",\"action\":\"trigger\",\"scenario\":\"bad_deploy\"}" >/dev/null
+st=$(curl -s "$B/api/sandbox?id=$A")
+check "A-66 memory: the resolved incident is remembered" '[[ $(echo "$st" | j "len(d[\"sandbox\"].get(\"history\") or [])") -ge 1 ]]' "$st"
+check "A-67 memory: the repeat is matched to the earlier incident before the call" '[[ "$st" == *"Matched a past incident"* && $(echo "$st" | j "d[\"sandbox\"][\"incident\"][\"learnedFrom\"][\"id\"]") == INC-* ]]' "$st"
+check "A-68 memory: Vigil now recommends the fix that worked, not the blocked rollback" '[[ $(echo "$st" | j "d[\"sandbox\"][\"incident\"][\"recommended\"]") == *"new-coupon-engine feature flag"* ]]' "$st"
+r=$(get "$A" get_incident)
+check "A-69 get_incident gives evidence and the earlier incident" '[[ $(echo "$r" | j "len(d[\"evidence\"])") -ge 4 && "$r" == *"same_as_past_incident"* ]]' "$r"
+sb "{\"id\":\"$A\",\"action\":\"reset\"}" >/dev/null
+check "A-70 Reset forgets past incidents" '[[ $(curl -s "$B/api/sandbox?id=$A" | j "len(d[\"sandbox\"].get(\"history\") or [])") == 0 ]]' ""
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

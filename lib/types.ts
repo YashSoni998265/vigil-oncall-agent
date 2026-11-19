@@ -78,6 +78,28 @@ export interface Incident {
   remediations: Remediation[];
   statusUpdates: StatusUpdate[];
   followUps: FollowUp[];
+  /** Vigil's recommended first fix. Starts from the scenario's default; memory can change it. */
+  recommended?: string;
+  /** A past incident in this sandbox with the same failure, matched before the call. */
+  learnedFrom?: { id: string; fix: string; blocked: string | null } | null;
+}
+
+/** What Vigil remembers about a resolved incident, for the next time it happens. */
+export interface PastIncident {
+  id: string;
+  scenario: ScenarioId;
+  title: string;
+  resolvedAt: string;
+  durationMs: number;
+  rootCause: string;
+  /** The fix that worked, as a spoken phrase ("switching off the new-coupon-engine flag"). */
+  fix: string;
+  /** The same fix as a recommendation ("Switch off the new-coupon-engine feature flag"). */
+  recommended: string;
+  /** What was tried and did not work, with the reason, if anything. */
+  blocked: string | null;
+  failedOrders: number;
+  revenue: string;
 }
 
 export interface CaptionLine {
@@ -101,6 +123,8 @@ export interface CallState {
   engineerUid: string | null;
   /** How Agora reached Vigil's tools on this call. */
   toolsVia?: 'rest' | 'mcp';
+  /** This call's time limit: longer on the owner's own calls. */
+  maxSeconds?: number;
   startedAt: string | null;
   lastSeenAt: string | null;
   endedAt: string | null;
@@ -126,6 +150,8 @@ export interface Sandbox {
   incidentCount: number;
   /** Created by the owner's device (owner key): real integrations may run for it. */
   owner?: boolean;
+  /** Resolved incidents Vigil remembers (most recent last). Cleared by Reset. */
+  history?: PastIncident[];
 }
 
 /** What GET /api/sandbox returns. */

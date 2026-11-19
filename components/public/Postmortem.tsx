@@ -87,7 +87,7 @@ function Doc({ sb }: { sb: Sandbox }) {
       </section>
 
       <Section title="Summary">
-        <p>{inc.summary ?? `${def.title}. ${def.recommended} was the plan; see the timeline for what was tried.`}</p>
+        <p>{inc.summary ?? `${def.title}. ${inc.recommended ?? def.recommended} was the plan; see the timeline for what was tried.`}</p>
       </Section>
 
       <Section title="Root cause">
@@ -123,6 +123,11 @@ function Doc({ sb }: { sb: Sandbox }) {
       <Section title="What went well">
         <ul className="list-disc space-y-1 pl-5">
           <li>Vigil had a diagnosis {fmtDuration(31_000)} after the alert, before anyone was woken up.</li>
+          {inc.learnedFrom ? (
+            <li>
+              Vigil recognised a repeat of {inc.learnedFrom.id} and recommended what fixed it last time: {inc.learnedFrom.fix}.
+            </li>
+          ) : null}
           {lessons.well.map((l) => (
             <li key={l}>{l}</li>
           ))}

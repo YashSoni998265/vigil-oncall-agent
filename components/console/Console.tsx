@@ -308,7 +308,8 @@ function IncidentHeader({ incident, sandbox, now, onBreakAnother }: { incident: 
       </ol>
       <div className="relative mt-4 flex flex-wrap items-center justify-between gap-3 text-[13px]">
         <p className="text-dim">
-          Recommended by Vigil: <span className="font-medium text-ink">{def.recommended}</span>
+          Recommended by Vigil: <span className="font-medium text-ink">{incident.recommended ?? def.recommended}</span>
+          {incident.learnedFrom ? <span className="ml-1.5 text-good">· worked in {incident.learnedFrom.id}</span> : null}
         </p>
         <button onClick={onBreakAnother} className="text-[13px] font-medium text-dim underline-offset-4 hover:text-ink hover:underline">
           Break something else

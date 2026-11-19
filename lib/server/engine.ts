@@ -39,6 +39,8 @@ const STALE_CALL_MS = 35_000;
 const INVESTIGATION_MS = 3_200;
 
 export const MAX_CALLS_PER_SANDBOX = Number(process.env.MAX_CALLS_PER_SANDBOX ?? 6);
+/** The owner's own calls (demos, judges' questions) may run longer than public demo calls. */
+export const OWNER_MAX_CALL_SECONDS = Number(process.env.OWNER_MAX_CALL_SECONDS ?? 900);
 export const DAILY_CALL_CAP = Number(process.env.DAILY_CALL_CAP ?? 60);
 
 const nowIso = (t = Date.now()) => new Date(t).toISOString();
@@ -103,7 +105,7 @@ export async function viewSandbox(id: string, ownerKey?: string | null): Promise
       now: Date.now(),
       limits: {
         callsLeft: owner ? 99 : Math.max(0, MAX_CALLS_PER_SANDBOX - sandbox.callsUsed),
-        maxCallSeconds: MAX_CALL_SECONDS,
+        maxCallSeconds: sandbox.call?.maxSeconds ?? (owner ? OWNER_MAX_CALL_SECONDS : MAX_CALL_SECONDS),
         owner,
       },
     },
@@ -121,7 +123,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
     (c?.status === 'ringing' && c.ringAt && now - Date.parse(c.ringAt) > RING_MS) ||
     (c?.status === 'missed' && c.retryAt && Date.parse(c.retryAt) <= now) ||
     (c?.status === 'active' && c.lastSeenAt && now - Date.parse(c.lastSeenAt) > STALE_CALL_MS) ||
-    (c?.status === 'active' && c.startedAt && now - Date.parse(c.startedAt) > (MAX_CALL_SECONDS + 20) * 1000) ||
+    (c?.status === 'active' && c.startedAt && now - Date.parse(c.startedAt) > ((c.maxSeconds ?? MAX_CALL_SECONDS) + 20) * 1000) ||
     (inc && inc.mitigatedAt && !inc.recoveredAt && isRecovered(inc, now)) ||
     (c?.status === 'active' && c.teammateJoinedAt && !c.teammateAnnounced && c.agentId);
   if (!needs) return { sandbox: sb, effects: [] };
@@ -154,7 +156,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
     if (call?.status === 'active' && call.lastSeenAt && t - Date.parse(call.lastSeenAt) > STALE_CALL_MS) {
       endCallDraft(d, 'connection_lost', effects);
     }
-    if (call?.status === 'active' && call.startedAt && t - Date.parse(call.startedAt) > (MAX_CALL_SECONDS + 20) * 1000) {
+    if (call?.status === 'active' && call.startedAt && t - Date.parse(call.startedAt) > ((call.maxSeconds ?? MAX_CALL_SECONDS) + 20) * 1000) {
       endCallDraft(d, 'time_limit', effects);
     }
     if (incident && incident.mitigatedAt && !incident.recoveredAt && isRecovered(incident, t)) {
@@ -249,6 +251,9 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
       followUps: [],
     };
     const inc = d.incident;
+    const past = [...(d.history ?? [])].reverse().find((h) => h.scenario === scenario);
+    inc.recommended = past?.recommended ?? def.recommended;
+    inc.learnedFrom = past ? { id: past.id, fix: past.fix, blocked: past.blocked } : null;
 
     // Vigil investigates before it calls: read-only findings, timestamped as they happened.
     const step = (ms: number) => nowIso(alertAt + ms);
@@ -304,15 +309,25 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
     }
     const rb = searchRunbooks(scenario === 'bad_deploy' ? 'errors after deploy rollback' : scenario === 'upi_provider' ? 'upi payment provider failover' : 'database saturation job')[0];
     pushAction(d, { tool: 'search_runbooks', kind: 'read', title: `Runbook ${rb.id}: ${rb.title}`, detail: rb.steps[1], at: step(24_000), phase: 'before' });
+    if (past) {
+      pushAction(d, {
+        tool: 'memory',
+        kind: 'read',
+        title: `Matched a past incident: ${past.id}, resolved at ${fmtClock(past.resolvedAt)}`,
+        detail: `${past.blocked ? `${upperFirst(past.blocked)}. ` : ''}${upperFirst(past.fix)} fixed it.`,
+        at: step(27_000),
+        phase: 'before',
+      });
+    }
     pushAction(d, {
       tool: 'diagnosis',
       kind: 'system',
-      title: `Diagnosis ready. Recommended: ${def.recommended}.`,
+      title: `Diagnosis ready. Recommended: ${inc.recommended}${past ? ` (it fixed ${past.id})` : ''}.`,
       detail: `Calling ${d.engineer} (primary on-call).`,
       at: step(31_000),
       phase: 'before',
     });
-    pushChannel(d, 'Vigil', 'vigil', `Investigating ${inc.id}. Likely cause: ${likelyCause(scenario)}. Recommended: ${def.recommended}. Calling ${d.engineer} now.`, step(31_000));
+    pushChannel(d, 'Vigil', 'vigil', `Investigating ${inc.id}. Likely cause: ${likelyCause(scenario)}. Recommended: ${inc.recommended}. Calling ${d.engineer} now.`, step(31_000));
     inc.status = 'identified';
 
     d.call = {
@@ -360,6 +375,7 @@ export async function resetSandbox(id: string): Promise<Effect[]> {
     d.channel = [];
     d.transcript = [];
     d.escalatedTo = null;
+    d.history = [];
   });
   return effects;
 }
@@ -442,6 +458,7 @@ export async function markAgentStarted(
     d.call.channel = info.channel;
     d.call.engineerUid = info.engineerUid;
     d.call.toolsVia = info.toolsVia;
+    d.call.maxSeconds = owner ? OWNER_MAX_CALL_SECONDS : MAX_CALL_SECONDS;
     d.call.lastSeenAt = nowIso();
     d.callsUsed += 1;
     pushAction(d, {
@@ -530,4 +547,8 @@ export async function teammateJoined(id: string): Promise<void> {
     pushAction(d, { tool: 'bridge', kind: 'system', title: `${who} joined the live call` });
     pushChannel(d, 'Vigil', 'vigil', `${who} joined the incident call.`);
   });
+}
+
+function upperFirst(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }

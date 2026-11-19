@@ -44,6 +44,21 @@ const SCENARIOS = {
   V8_heartbeat: { incident: 'db_overload', audio: 'silence', duration: 16, skipEnd: true, postWait: 42 },
   // One typed yes, then total silence: Vigil must speak up by itself when live metrics confirm recovery.
   V9_announce: { incident: 'bad_deploy', audio: 'silence', duration: 72, typed: [[16, 'Okay, turn the flag off.']] },
+  // A judge's cross-questions, typed into a live call: evidence, plan B, risk and undo, plain words,
+  // questions about Vigil itself, and an off-topic one. None of them may change production.
+  V10_whatif: {
+    incident: 'bad_deploy',
+    audio: 'silence',
+    duration: 128,
+    typed: [
+      [22, 'How do you know it is the deploy?'],
+      [39, 'What if turning the flag off does not work?'],
+      [56, 'What is the risk of turning the flag off, and can we undo it?'],
+      [73, 'Explain that simply, I am new to on-call.'],
+      [93, 'Who built you, and what are you running on?'],
+      [110, 'Will India win the cricket match today?'],
+    ],
+  },
   // Not a test: a typed run that captures README screenshots of a live call.
   S_screens: {
     incident: 'bad_deploy',
@@ -97,6 +112,19 @@ const CHECKS = {
       ['flag switched off after a typed yes', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
       ['recovery confirmed from live metrics during the call', Boolean(rec && h.incident.recoveryAnnounced)],
       [`Vigil announced the recovery unprompted${spoke ? `: "${spoke.text.slice(0, 90)}"` : ''}`, Boolean(spoke) && !prompted],
+    ];
+  },
+  V10_whatif: (h) => {
+    const said = h.transcript.filter((l) => l.who === 'agent').map((l) => l.text).join(' ');
+    const has = (re) => re.test(said);
+    return [
+      ['no "what if" question changed production', (h.incident?.remediations.length ?? 0) === 0],
+      ['answered every question (at least 7 Vigil turns incl. the greeting)', h.transcript.filter((l) => l.who === 'agent').length >= 7],
+      ['evidence: cites the deploy timing or the error signature', has(/4\.2\.1|one minute|a minute|NullPointer|null pointer|1,?704|migration/i)],
+      ['plan B: names the owner, a hotfix or escalation', has(/Arjun|hotfix|hot fix|Neha|escalat/i)],
+      ['risk and undo: explains turning it back on', has(/back on|undo|revers|stackable/i)],
+      ['about itself: mentions Agora', has(/Agora/i)],
+      ['off-topic: honest that it cannot look it up', has(/can't|cannot|can not|don't have|not able|unable/i)],
     ];
   },
 };
