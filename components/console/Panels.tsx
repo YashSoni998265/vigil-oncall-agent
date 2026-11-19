@@ -23,7 +23,7 @@ import {
   Wrench,
   XCircle,
 } from 'lucide-react';
-import { SCENARIOS, SCENARIO_ORDER, SERVICES, fmtClock, fmtClockSeconds, incidentFactor } from '@/lib/sim';
+import { SCENARIOS, SCENARIO_ORDER, SERVICES, fmtClock, fmtClockSeconds, fmtDuration, fmtINR, fmtInt, impactAt, incidentFactor } from '@/lib/sim';
 import type { ActionEntry, ChannelMessage, Incident, Sandbox, ScenarioId } from '@/lib/types';
 
 // ---------------------------------------------------------------------------
@@ -213,6 +213,11 @@ type Tab = 'channel' | 'status' | 'tickets' | 'postmortem';
 
 export function SideTabs({ sandbox }: { sandbox: Sandbox }) {
   const [tab, setTab] = useState<Tab>('channel');
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // Each tab opens at its top; the channel scrolls itself to the newest message.
+    if (tab !== 'channel' && panel.current) panel.current.scrollTop = 0;
+  }, [tab]);
   const inc = sandbox.incident;
   const tabs: { id: Tab; label: string; icon: typeof Hash; count?: number }[] = [
     { id: 'channel', label: 'Channel', icon: Hash, count: sandbox.channel.length },
@@ -220,9 +225,21 @@ export function SideTabs({ sandbox }: { sandbox: Sandbox }) {
     { id: 'tickets', label: 'Tickets', icon: ListChecks, count: inc?.followUps.length },
     { id: 'postmortem', label: 'Postmortem', icon: FileText },
   ];
+  const select = (id: Tab, el: HTMLElement) => {
+    setTab(id);
+    // If the bar ever overflows (browser zoom), keep the chosen tab fully in view.
+    // Only the bar scrolls: scrollIntoView would also move the page.
+    const bar = el.parentElement;
+    if (!bar) return;
+    const a = el.getBoundingClientRect();
+    const b = bar.getBoundingClientRect();
+    if (a.left < b.left) bar.scrollLeft -= b.left - a.left;
+    else if (a.right > b.right) bar.scrollLeft += a.right - b.right;
+  };
   return (
     <section className="panel overflow-hidden">
-      <div className="flex border-b border-line/10" role="tablist" aria-label="Incident outputs">
+      {/* All four tabs fit the 400px side column with room for two-digit counts; past that the bar scrolls instead of clipping. */}
+      <div className="scroll-quiet flex overflow-x-auto border-b border-line/10" role="tablist" aria-label="Incident outputs">
         {tabs.map((t) => {
           const Icon = t.icon;
           const on = tab === t.id;
@@ -231,17 +248,17 @@ export function SideTabs({ sandbox }: { sandbox: Sandbox }) {
               key={t.id}
               role="tab"
               aria-selected={on}
-              onClick={() => setTab(t.id)}
-              className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap px-2 py-3 text-[12.5px] font-medium transition ${on ? 'bg-raised text-ink' : 'text-faint hover:text-dim'}`}
+              onClick={(e) => select(t.id, e.currentTarget)}
+              className={`flex flex-1 items-center justify-center gap-1 whitespace-nowrap px-1.5 py-3 text-[12px] font-medium transition ${on ? 'bg-raised text-ink' : 'text-faint hover:text-dim'}`}
             >
-              <Icon className="h-3.5 w-3.5" aria-hidden />
+              <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="hidden sm:inline">{t.label}</span>
-              {t.count ? <span className={`rounded-full px-1.5 text-[10px] tabular ${on ? 'bg-brand/25 text-ink' : 'bg-raised text-dim'}`}>{t.count}</span> : null}
+              {t.count ? <span className={`rounded-full px-1 text-[10px] tabular ${on ? 'bg-brand/25 text-ink' : 'bg-raised text-dim'}`}>{t.count}</span> : null}
             </button>
           );
         })}
       </div>
-      <div className="max-h-[380px] min-h-[220px] overflow-y-auto p-4 scroll-quiet" role="tabpanel">
+      <div ref={panel} className="max-h-[380px] min-h-[220px] overflow-y-auto p-4 scroll-quiet" role="tabpanel">
         {tab === 'channel' && <Channel messages={sandbox.channel} name={inc ? `#${inc.id.toLowerCase()}` : '#incidents'} />}
         {tab === 'status' && <StatusPreview sandbox={sandbox} />}
         {tab === 'tickets' && <Tickets incident={inc} />}
@@ -339,21 +356,53 @@ function Tickets({ incident }: { incident: Incident | null }) {
 
 function PostmortemPreview({ sandbox }: { sandbox: Sandbox }) {
   const inc = sandbox.incident;
-  if (!inc || inc.status !== 'resolved') return <Empty text="Vigil drafts the postmortem when you resolve the incident." />;
+  if (!inc || inc.status !== 'resolved' || !inc.resolvedAt) return <Empty text="Vigil drafts the postmortem when you resolve the incident." />;
+  // The same numbers as the full postmortem, so the essentials are readable without leaving the console.
+  const resolved = Date.parse(inc.resolvedAt);
+  const impact = impactAt(SCENARIOS[inc.scenario], inc, resolved);
+  const approvals = sandbox.actions.filter((a) => a.approval).length;
+  const stats: [string, string][] = [
+    ['Duration', fmtDuration(resolved - Date.parse(inc.faultAt))],
+    ['Alert → fix', inc.mitigatedAt ? fmtDuration(Date.parse(inc.mitigatedAt) - Date.parse(inc.alertAt)) : '—'],
+    ['Failed orders', fmtInt(impact.failedOrders)],
+    ['Revenue impact', fmtINR(impact.inr)],
+  ];
   return (
-    <div className="space-y-3">
-      <p className="inline-flex items-center gap-1.5 rounded-full bg-good/12 px-2.5 py-1 text-[12px] font-medium text-good">
-        <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {inc.id} resolved
+    <div className="space-y-3" data-testid="postmortem-preview">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="inline-flex items-center gap-1.5 rounded-full bg-good/12 px-2.5 py-1 text-[12px] font-medium text-good">
+          <CheckCircle2 className="h-3.5 w-3.5" aria-hidden /> {inc.id} resolved
+        </p>
+        <Link
+          href={`/postmortem?s=${sandbox.id}`}
+          target="_blank"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-canvas transition hover:bg-white"
+          data-testid="open-postmortem"
+        >
+          Open the full postmortem <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+        </Link>
+      </div>
+      <dl className="grid grid-cols-2 gap-2">
+        {stats.map(([k, v]) => (
+          <div key={k} className="rounded-xl border border-line/10 bg-raised/40 px-3 py-2">
+            <dt className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">{k}</dt>
+            <dd className="mt-0.5 text-[15px] font-semibold tabular text-ink">{v}</dd>
+          </div>
+        ))}
+      </dl>
+      <div>
+        <p className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">Root cause</p>
+        <p className="mt-0.5 text-[13px] leading-relaxed text-dim">{inc.rootCause}</p>
+      </div>
+      {inc.summary && (
+        <div>
+          <p className="text-[10.5px] font-semibold uppercase tracking-wide text-faint">What fixed it</p>
+          <p className="mt-0.5 text-[13px] leading-relaxed text-dim">{inc.summary}</p>
+        </div>
+      )}
+      <p className="text-[12px] text-faint">
+        {inc.followUps.length} follow-up {inc.followUps.length === 1 ? 'ticket' : 'tickets'} · {approvals} approved {approvals === 1 ? 'change' : 'changes'} · the full timeline is in the postmortem
       </p>
-      <p className="text-[13px] leading-relaxed text-dim">{inc.rootCause}</p>
-      <Link
-        href={`/postmortem?s=${sandbox.id}`}
-        target="_blank"
-        className="inline-flex items-center gap-1.5 rounded-xl bg-ink px-3.5 py-2 text-[13px] font-semibold text-canvas transition hover:bg-white"
-        data-testid="open-postmortem"
-      >
-        Open the postmortem <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-      </Link>
     </div>
   );
 }

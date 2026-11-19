@@ -125,7 +125,14 @@ export default function Console() {
           </div>
         </div>
 
-        <aside className={`flex flex-col gap-5 lg:sticky lg:top-[76px] lg:self-start ${callLive ? 'order-first lg:order-none' : ''}`}>
+        {/* On laptops the phone plus the tabs are taller than the screen, so the column scrolls on its own
+            (otherwise the tabs were only reachable at the very end of the page). The -mx/px pair keeps the
+            column 400px wide while leaving room for the phone's glow inside the scroll box (the mask fades
+            the glow out at the right edge instead of cutting it on wide screens), and shrink-0 stops
+            flexbox squeezing the phone and the tabs to fit instead of scrolling. */}
+        <aside
+          className={`scroll-quiet flex flex-col gap-5 [&>*]:shrink-0 lg:sticky lg:top-[76px] lg:-mx-6 lg:max-h-[calc(100dvh-92px)] lg:self-start lg:overflow-y-auto lg:px-6 lg:[mask-image:linear-gradient(to_right,#000_calc(100%_-_24px),transparent)] ${callLive ? 'order-first lg:order-none' : ''}`}
+        >
           <Phone view={view} now={now} audioRef={audioRef} onChanged={refresh} />
           <SideTabs sandbox={sb} />
         </aside>
