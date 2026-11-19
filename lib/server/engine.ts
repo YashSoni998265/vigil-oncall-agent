@@ -429,7 +429,11 @@ export async function answerCall(id: string): Promise<void> {
   });
 }
 
-export async function markAgentStarted(id: string, info: { agentId: string; channel: string; engineerUid: string }, owner = false): Promise<void> {
+export async function markAgentStarted(
+  id: string,
+  info: { agentId: string; channel: string; engineerUid: string; toolsVia: 'rest' | 'mcp' },
+  owner = false,
+): Promise<void> {
   // The owner's own rehearsals never use up the shared daily cap that protects public visitors.
   if (!owner) await incrementDailyCalls();
   await mutateSandbox(id, (d) => {
@@ -437,8 +441,15 @@ export async function markAgentStarted(id: string, info: { agentId: string; chan
     d.call.agentId = info.agentId;
     d.call.channel = info.channel;
     d.call.engineerUid = info.engineerUid;
+    d.call.toolsVia = info.toolsVia;
     d.call.lastSeenAt = nowIso();
     d.callsUsed += 1;
+    pushAction(d, {
+      tool: 'call',
+      kind: 'system',
+      title: 'Vigil joined the call',
+      detail: `Agora Conversational AI · Murf Falcon 2.1 · 13 tools over ${info.toolsVia === 'mcp' ? 'MCP' : 'HTTPS'}`,
+    });
   });
 }
 

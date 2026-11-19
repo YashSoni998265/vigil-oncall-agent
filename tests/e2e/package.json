@@ -2,8 +2,9 @@
   "name": "vigil-voice-e2e",
   "private": true,
   "type": "module",
-  "description": "End-to-end voice tests for Vigil: the real Agora + Murf pipeline driven by a fake microphone.",
+  "description": "End-to-end tests for Vigil: the real Agora + Murf voice pipeline driven by a fake microphone, and MCP conformance with the official client.",
   "dependencies": {
-    "puppeteer-core": "^24.43.1"
+    "puppeteer-core": "^24.43.1",
+    "@modelcontextprotocol/sdk": "^1.32.2"
   }
 }

@@ -99,6 +99,8 @@ export interface CallState {
   agentId: string | null;
   channel: string | null;
   engineerUid: string | null;
+  /** How Agora reached Vigil's tools on this call. */
+  toolsVia?: 'rest' | 'mcp';
   startedAt: string | null;
   lastSeenAt: string | null;
   endedAt: string | null;

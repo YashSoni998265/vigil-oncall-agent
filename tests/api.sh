@@ -142,6 +142,32 @@ check "A-48 status page 200" '[[ $(code "$B/status?s=$A") == 200 ]]' ""
 check "A-49 postmortem page 200" '[[ $(code "$B/postmortem?s=$A") == 200 ]]' ""
 check "A-50 join page 200" '[[ $(code "$B/join?s=$A") == 200 ]]' ""
 
+echo "== MCP (the path Agora's MCP client uses)"
+mcp()  { curl -s -X POST "$B/api/mcp" -H "x-tool-secret: $SECRET" -H "x-sandbox: $1" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d "$2"; }
+txt()  { j "json.loads(d['result']['content'][0]['text']).get('$1')"; }
+M=$(sb '{"action":"create","name":"Priya"}' | j 'd["id"]')
+sb "{\"id\":\"$M\",\"action\":\"trigger\",\"scenario\":\"bad_deploy\"}" >/dev/null
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"api.sh","version":"1"}}}')
+check "A-56 MCP initialize agrees a protocol version and offers tools" '[[ $(echo "$r" | j "d[\"result\"][\"protocolVersion\"]") == 2025-06-18 && "$r" == *"\"tools\""* ]]' "$r"
+st=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$B/api/mcp" -H "x-tool-secret: $SECRET" -H "x-sandbox: $M" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","method":"notifications/initialized"}')
+check "A-57 MCP notifications/initialized is acknowledged with 202" '[[ "$st" == 202 ]]' "$st"
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
+names=$(echo "$r" | j "','.join(t['name'] for t in d['result']['tools'])")
+check "A-58 MCP tools/list returns the same 13 tools as the HTTPS path" '[[ "$names" == "get_incident,get_service_health,search_logs,list_recent_changes,search_runbooks,check_dependencies,execute_remediation,verify_recovery,update_status_page,post_to_channel,page_teammate,create_follow_up,resolve_incident" ]]' "$names"
+check "A-59 MCP wrong secret → 401" '[[ $(code -X POST "$B/api/mcp" -H "x-tool-secret: nope-nope-nope-nope" -H "Content-Type: application/json" -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}") == 401 ]]' ""
+check "A-60 MCP has no server stream (GET → 405)" '[[ $(code "$B/api/mcp" -H "x-tool-secret: $SECRET") == 405 ]]' ""
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_incident","arguments":{}}}')
+check "A-61 MCP tools/call reads the live incident" '[[ "$r" == *"\"isError\":false"* && "$r" == *"INC-"* ]]' "$r"
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"execute_remediation","arguments":{"action":"disable_feature_flag","target":"new-coupon-engine","approval_quote":"yes"}}}')
+check "A-62 MCP cannot change production without a human yes" '[[ $(echo "$r" | txt executed) != True ]]' "$r"
+sb "{\"id\":\"$M\",\"action\":\"typed\",\"text\":\"Okay, turn the flag off.\"}" >/dev/null
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"execute_remediation","arguments":{"action":"disable_feature_flag","target":"new-coupon-engine","approval_quote":"Okay, turn the flag off."}}}')
+check "A-63 MCP typed yes → flag switched off, through the same approval guard" '[[ $(echo "$r" | txt executed) == True ]]' "$r"
+r=$(mcp "$M" '{"jsonrpc":"2.0","id":6,"method":"tools/call","params":{"name":"drop_database","arguments":{}}}')
+check "A-64 MCP unknown tool → JSON-RPC error" '[[ $(echo "$r" | j "d[\"error\"][\"code\"]") == -32602 ]]' "$r"
+r=$(curl -s -X POST "$B/api/mcp" -H "x-tool-secret: $SECRET" -H 'Content-Type: application/json' -d '{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"get_incident","arguments":{}}}')
+check "A-65 MCP tool calls need the sandbox header" '[[ $(echo "$r" | j "d[\"error\"][\"code\"]") == -32602 ]]' "$r"
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail -eq 0 ]]

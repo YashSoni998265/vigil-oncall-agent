@@ -3,7 +3,7 @@ import { Agent, AresSTT, ExpiresIn, MurfTTS, OpenAI } from 'agora-agents';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
 import { SANDBOX_ID, readSandbox } from '@/lib/server/store';
 import { buildGreeting, buildInstructions } from '@/lib/server/prompt';
-import { buildAgentTools } from '@/lib/server/agent-tools';
+import { buildAgentTools, buildMcpServer } from '@/lib/server/agent-tools';
 import { createAgoraClient } from '@/lib/server/agora';
 import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
 
@@ -59,6 +59,10 @@ export async function POST(request: NextRequest) {
       console.error('[invite-agent] PUBLIC_BASE_URL (https) and TOOL_SECRET (16+ chars) are required.');
       return NextResponse.json({ error: 'Vigil is not fully configured on this server (tools are unreachable). Please try again later.' }, { status: 503 });
     }
+    // How Agora reaches the same 13 tools: HTTPS tools (default) or MCP (/api/mcp).
+    // AGENT_TOOLS=mcp-owner uses MCP only on the owner's own calls, so it can be tried without touching visitors.
+    const toolsMode = process.env.AGENT_TOOLS ?? 'rest';
+    const viaMcp = toolsMode === 'mcp' || (toolsMode === 'mcp-owner' && owner);
 
     const greeting = buildGreeting(sb, Date.now());
     const instructions = buildInstructions(sb);
@@ -93,8 +97,9 @@ export async function POST(request: NextRequest) {
           greetingMessage: greeting,
           failureMessage: 'Sorry, I lost that for a second. Could you say it again?',
           maxHistory: 30,
-          templateVariables: toolsEnabled ? { tool_secret: toolSecret, sandbox: id } : undefined,
-          tools: toolsEnabled ? buildAgentTools(baseUrl) : undefined,
+          templateVariables: toolsEnabled && !viaMcp ? { tool_secret: toolSecret, sandbox: id } : undefined,
+          tools: toolsEnabled && !viaMcp ? buildAgentTools(baseUrl) : undefined,
+          mcpServers: toolsEnabled && viaMcp ? [buildMcpServer(baseUrl, toolSecret, id)] : undefined,
           params: { max_tokens: 300, temperature: 0.3 },
         }),
       )
@@ -124,7 +129,7 @@ export async function POST(request: NextRequest) {
     });
 
     const agentId = await session.start();
-    await markAgentStarted(id, { agentId, channel, engineerUid: requester }, owner);
+    await markAgentStarted(id, { agentId, channel, engineerUid: requester, toolsVia: viaMcp ? 'mcp' : 'rest' }, owner);
     return NextResponse.json({ agent_id: agentId, create_ts: Math.floor(Date.now() / 1000), state: 'RUNNING' });
   } catch (error) {
     console.error('Error starting Vigil:', error);
