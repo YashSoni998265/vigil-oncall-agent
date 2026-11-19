@@ -28,7 +28,7 @@ Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intel
 | Judging criterion | Vigil |
 |---|---|
 | **Problem–solution fit** | PS31's before → during → action → after, applied to the workplace's most stressful job: the on-call page at 2:47 AM. [See the mapping](#built-for-ps31). |
-| **Innovation** | Investigates before it pages. A spoken yes is checked by the server, not trusted from the model. Recovery is proven from live metrics, and Vigil says so unprompted. [What's new](#whats-new). |
+| **Innovation** | Investigates before it pages. A spoken yes is checked by the server, not trusted from the model. Recovery is proven from live metrics, and Vigil says so unprompted. It answers judges' "what ifs" from facts and remembers past incidents. [What's new](#whats-new). |
 | **Use of Agora and Murf** | Conversational AI Engine, ARES, Agora-managed GPT-4.1 mini, 13 tools (as HTTPS tools or over MCP), the think API, RTM, multi-party RTC, filler words, and Murf Falcon 2.1 for every spoken word. [Built on](#built-on-agora-and-murf). |
 | **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 65/65 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
 | **Future scope and scale** | Real integrations through APIs or MCP, real phone calls through Agora, Hindi and Hinglish, and under ₹30 per incident call. [From demo to production](#from-demo-to-production). |
@@ -77,6 +77,8 @@ PS31's required demo flow (initiate → understand → execute → confirm → f
 1. **Investigate-first paging.** A pager wakes you with a symptom. Vigil investigates first, so the call starts with the cause and a recommended fix.
 2. **A spoken-consent guard.** The model can't approve its own actions: the server checks your exact words against the live transcript. One yes allows one change, and questions, hedges or "no, wait" never execute.
 3. **Proof of recovery, said unprompted.** Vigil never says "fixed" on hope. It watches live metrics and speaks up the moment they're back at baseline.
+4. **It answers the "what ifs".** Ask "how do you know?", "what if that fails?", "what's the risk?" or "can we undo it?". Vigil answers from its evidence and the runbooks: the facts behind the diagnosis, plan B, the risk and the way back. It speaks at an engineer's level, and switches to plain words when you say "explain that simply". Asking is never acting: a question can't change production.
+5. **It remembers.** When a failure repeats, Vigil matches it to the earlier incident before the call and starts from the fix that worked. It skips the rollback that was blocked last time.
 
 | | |
 |---|---|
@@ -189,10 +191,10 @@ The same 13 tools are also served as an **MCP server** at `/api/mcp` (Streamable
 
 | Suite | What it covers | Result |
 |---|---|---|
-| **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. A ninth, V9, was added on 19 Nov: one typed yes, then silence, and Vigil must announce the recovery by itself. | **8 / 8 scenarios · 19 / 19 checks** |
-| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages, and the MCP path (handshake, tool list, guard). | **65 / 65** |
+| **Voice scenarios** ([`tests/e2e`](tests/e2e)) | Headless Chrome plays Indian-English speech into a fake microphone; the real pipeline runs (Agora RTC → ARES → GPT-4.1 mini → tools → Murf). Hero flow with blocked rollback, approval safety, UPI failover, prompt injection, typed approvals, decline and missed-call escalation, teammate joining the live call, heartbeat cleanup. A ninth, V9, was added on 19 Nov: one typed yes, then silence, and Vigil must announce the recovery by itself. A tenth, V10, types the questions a judge would ask: evidence, plan B, risk and undo, plain words, who built it, and an off-topic question. None of them may change production. | **8 / 8 scenarios · 19 / 19 checks**, and V10 (a judge's cross-questions, typed into a live call): **7 / 7** |
+| **Backend contract suite** ([`tests/api.sh`](tests/api.sh)) | Every tool called exactly as Agora calls it: auth, sandbox isolation, approval guard, idempotency, refusals, recovery and resolve, call gate, secrets, pages, the MCP path (handshake, tool list, guard), and memory of past incidents. | **70 / 70** |
 | **MCP conformance** ([`tests/e2e/mcp-client.mjs`](tests/e2e/mcp-client.mjs)) | The official MCP TypeScript client connects to `/api/mcp`, negotiates the protocol, lists the 13 tools and calls them through the approval guard. | **10 / 10** |
-| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting, and the MCP protocol (version negotiation, tool list identical to the HTTPS tools). | **20 / 20** |
+| **Unit tests** ([`tests/unit`](tests/unit)) | Approval classifier, one-yes-one-change, cross-action guard, metrics model, revenue maths, Indian formatting, the MCP protocol (version negotiation, tool list identical to the HTTPS tools), and what Vigil is told (engineer level by default, plain words on request, grounded "what ifs", memory). | **24 / 24** |
 | **CI** | Doctor, lint, type-check, unit tests and a production build on Node 22 and 24, on every push. | [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml) |
 
 What testing caught before any judge saw it:
@@ -203,6 +205,7 @@ What testing caught before any judge saw it:
 - An agent that tried to treat "Should we roll back?" as a yes, which the server blocked, as designed.
 - From a manual run on the live site: a recovery update that waited for the engineer to speak first. Agora's think API was set to `inject` instead of `interrupt`.
 - Also from that run: side tabs that were clipped on laptop screens.
+- From the cross-question test (V10): asked "who built you?", Vigil said Agora. It now says a solo developer built it for the hackathon, on Agora's platform.
 
 ## From demo to production
 
@@ -224,10 +227,18 @@ The demo simulates Thali's production so anyone can break it safely. Every simul
 - **No media servers to operate:** agents run in Agora's cloud. Murf rates Falcon 2.1 for 10,000+ concurrent calls.
 - **About $0.32 per call, under ₹30.** A three-minute call costs $0.10 a minute for Agora's Conversational AI Engine (speech recognition and LLM included), plus 1–2 cents of Murf Falcon 2.1 at 1 cent per 1,000 characters. The average customer-facing incident costs $794,000 ([PagerDuty, 2024](https://www.businesswire.com/news/home/20240627388939/en)).
 - **Audit-ready:** every production change carries the engineer's exact words and the time, from the approval log into the postmortem.
-- **Next:**
-  - Plug vendors' MCP servers (Datadog, Grafana, GitHub) in next to Vigil's own.
-  - Feed past postmortems back into runbook retrieval.
-  - Add per-team approval policies, for example two people for a database change.
+**Every item on the roadmap already has a first step in the product:**
+
+| Roadmap (hard, longer-term) | First step, live today |
+|---|---|
+| Plug into any company's tools: PagerDuty, Datadog, Argo CD, LaunchDarkly, Slack, Jira | Vigil's own MCP server, which Agora's engine already connects to |
+| Learn from every team's postmortems | Memory of past incidents in a workspace: a repeat starts from the fix that worked |
+| Ring the engineer's real phone through Agora's SIP calling | A live call over Agora RTC; teammates already join from any phone |
+| Hindi and Hinglish conversations | Anisha, on Falcon 2.1, already speaks ten Indian locales |
+| Explain any incident to anyone, from a junior engineer to the CEO | Plain-language explanations on request |
+| Two-person approval for risky changes, per-team policies | One yes allows one change, checked by the server |
+| Fix low-risk issues automatically, then report by voice | Vigil already speaks up by itself when live metrics change |
+| Speaker lock for noisy rooms | Agora's SDK supports it (Selective Attention Locking). It isn't switched on yet, because we only ship what we've tested. |
 
 ## Run it
 
