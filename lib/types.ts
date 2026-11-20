@@ -132,6 +132,8 @@ export interface CallState {
   teammatePaged: { name: string; at: string } | null;
   teammateJoinedAt: string | null;
   teammateAnnounced: boolean;
+  /** Times the call screen heard no voice and swapped in a fresh agent (see restartVoice). */
+  voiceRestarts?: number;
 }
 
 export interface Sandbox {

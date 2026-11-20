@@ -31,7 +31,7 @@ const KEYWORDS = [
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json().catch(() => ({}))) as { sandbox_id?: string; channel_name?: string; requester_id?: string };
+    const body = (await request.json().catch(() => ({}))) as { sandbox_id?: string; channel_name?: string; requester_id?: string; reconnect?: boolean };
     const id = String(body.sandbox_id ?? '');
     const channel = String(body.channel_name ?? '');
     const requester = String(body.requester_id ?? '');
@@ -44,8 +44,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Answer the call first.' }, { status: 409 });
     }
     const owner = isOwner(request.headers.get('x-owner-key'));
-    const gate = await canStartCall(sb, owner);
-    if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+    // A voice reconnect (the call screen heard no voice, and the silent agent was just stopped) is
+    // the same call with a fresh agent: allowed only in that state, and never counted as a new call.
+    const reconnect = body.reconnect === true;
+    if (reconnect) {
+      if (sb.call.agentId || !(sb.call.voiceRestarts ?? 0) || (sb.call.channel && sb.call.channel !== channel)) {
+        return NextResponse.json({ error: 'Nothing to reconnect.' }, { status: 409 });
+      }
+    } else {
+      const gate = await canStartCall(sb, owner);
+      if (!gate.ok) return NextResponse.json({ error: gate.error }, { status: gate.status });
+    }
 
     const murfApiKey = process.env.MURF_API_KEY;
     if (!murfApiKey) return NextResponse.json({ error: 'MURF_API_KEY is not configured' }, { status: 500 });
@@ -129,7 +138,7 @@ export async function POST(request: NextRequest) {
     });
 
     const agentId = await session.start();
-    await markAgentStarted(id, { agentId, channel, engineerUid: requester, toolsVia: viaMcp ? 'mcp' : 'rest' }, owner);
+    await markAgentStarted(id, { agentId, channel, engineerUid: requester, toolsVia: viaMcp ? 'mcp' : 'rest' }, owner, reconnect);
     return NextResponse.json({ agent_id: agentId, create_ts: Math.floor(Date.now() / 1000), state: 'RUNNING' });
   } catch (error) {
     console.error('Error starting Vigil:', error);

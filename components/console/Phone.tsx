@@ -149,11 +149,14 @@ export default function Phone({
   );
 
   // The server can end the call too (time limit, lost connection, a new incident).
+  // An empty session.agentId means the voice safety net is swapping agents: not a different call.
   useEffect(() => {
-    if (mode === 'call' && session && call && (call.status !== 'active' || (call.agentId && call.agentId !== session.agentId))) {
+    if (mode === 'call' && session && call && (call.status !== 'active' || (call.agentId && session.agentId && call.agentId !== session.agentId))) {
       void end('server');
     }
   }, [mode, session, call, end]);
+
+  const adoptAgent = useCallback((agentId: string) => setSession((s) => (s ? { ...s, agentId } : s)), []);
 
   const decline = async () => {
     await postJSON('/api/sandbox', { id: sb.id, action: 'decline' });
@@ -165,7 +168,7 @@ export default function Phone({
 
   let body: React.ReactNode;
   if (mode === 'call' && session && rtm) {
-    body = <CallView session={session} rtmClient={rtm} sandbox={sb} hints={def?.hints ?? []} maxSeconds={view.limits.maxCallSeconds} onEnd={end} />;
+    body = <CallView session={session} rtmClient={rtm} sandbox={sb} hints={def?.hints ?? []} maxSeconds={view.limits.maxCallSeconds} onEnd={end} onAgentChange={adoptAgent} />;
   } else if (mode === 'connecting') {
     body = (
       <Centered>

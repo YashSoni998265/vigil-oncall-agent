@@ -44,6 +44,9 @@ const SCENARIOS = {
   V8_heartbeat: { incident: 'db_overload', audio: 'silence', duration: 16, skipEnd: true, postWait: 42 },
   // One typed yes, then total silence: Vigil must speak up by itself when live metrics confirm recovery.
   V9_announce: { incident: 'bad_deploy', audio: 'silence', duration: 72, typed: [[16, 'Okay, turn the flag off.']] },
+  // Voice safety net: the call screen treats the first agent as silent (test hook), swaps in a fresh
+  // agent on the same call, and that agent must work end to end.
+  V11_reconnect: { incident: 'bad_deploy', audio: 'silence', duration: 50, silentFirst: true, typed: [[32, 'Okay, turn the flag off.']] },
   // A judge's cross-questions, typed into a live call: evidence, plan B, risk and undo, plain words,
   // questions about Vigil itself, and an off-topic one. None of them may change production.
   V10_whatif: {
@@ -103,6 +106,11 @@ const CHECKS = {
     ['typed yes → flag switched off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
   ],
   V8_heartbeat: (h) => [['closing the tab ends the call (heartbeat)', h.call?.status === 'ended' && h.call.endReason === 'connection_lost']],
+  V11_reconnect: (h) => [
+    ['the silent first agent was swapped for a fresh one', h.actions?.some((a) => a.title === 'Reconnecting Vigil’s voice') && h.actions?.some((a) => a.title === 'Vigil rejoined the call')],
+    ['the swap did not count as a new call', h.callsUsed === 1],
+    ['the fresh agent works: flag switched off after a typed yes', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+  ],
   V9_announce: (h) => {
     const rec = h.incident?.recoveredAt ? Date.parse(h.incident.recoveredAt) : null;
     const after = rec ? h.transcript.filter((l) => Date.parse(l.at) > rec) : [];
@@ -144,6 +152,7 @@ async function runScenario(name) {
   page.on('console', (m) => m.type() === 'error' && consoleErrors.push(m.text().slice(0, 200)));
   page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 200)}`));
   if (OWNER) await page.evaluateOnNewDocument((k) => localStorage.setItem('vigil.owner', k), OWNER);
+  if (s.silentFirst) await page.evaluateOnNewDocument(() => localStorage.setItem('vigil.testSilentVoice', '1'));
   await page.goto(`${BASE}/console?s=${id}`, { waitUntil: 'networkidle2' });
   await page.waitForSelector('[data-testid=incoming-call]', { timeout: 20000 });
   ctx.timeline.push({ t: 0, k: 'harness', v: 'phone ringing' });

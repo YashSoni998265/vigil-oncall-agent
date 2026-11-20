@@ -48,7 +48,15 @@ interface Props {
   hints: string[];
   maxSeconds: number;
   onEnd: (reason: 'hangup' | 'time_limit') => void;
+  /** The voice safety net swapped in a fresh agent ('' while the swap is in progress). */
+  onAgentChange: (agentId: string) => void;
 }
+
+// Voice safety net: Vigil always greets within a few seconds of the call connecting. If no audio
+// arrives within this window, Agora's speech output never reached Murf and the whole call would stay
+// silent, so the screen swaps in a fresh agent on the same call (the server allows two swaps a call).
+const VOICE_WINDOW_MS = 9_000;
+const MAX_VOICE_RECONNECTS = 2;
 
 // Vigil's internal messages (monitoring updates, teammates' typed questions) come back in Agora's
 // transcript as user turns. Nobody on this call said them, so they are never shown or saved as captions.
@@ -65,7 +73,7 @@ export default function CallView(props: Props) {
 
 type Line = { key: string; who: 'agent' | 'engineer' | 'teammate'; text: string; typed?: boolean; pending?: boolean };
 
-function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Props) {
+function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAgentChange }: Props) {
   const client = useRTCClient();
   const remoteUsers = useRemoteUsers();
   const agentUid = String(DEFAULT_AGENT_UID);
@@ -148,6 +156,71 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Pr
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, joined]);
+
+  // Voice safety net (see VOICE_WINDOW_MS): listen for Vigil's audio; on silence, swap in a fresh agent.
+  const remoteUsersRef = useRef(remoteUsers);
+  useEffect(() => {
+    remoteUsersRef.current = remoteUsers;
+  }, [remoteUsers]);
+  const heardVoice = useRef(false);
+  const voiceAttempts = useRef(0);
+  const [voice, setVoice] = useState<'waiting' | 'heard' | 'reconnecting' | 'failed'>('waiting');
+  // Test hook for the e2e harness: treat the first agent as silent, to prove the reconnect works.
+  const testSilentFirst = useRef(false);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('vigil.testSilentVoice') === '1') {
+        testSilentFirst.current = true;
+        localStorage.removeItem('vigil.testSilentVoice');
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (heardVoice.current || (testSilentFirst.current && voiceAttempts.current === 0)) return;
+      const agent = remoteUsersRef.current.find((u) => String(u.uid) === agentUid);
+      if ((agent?.audioTrack?.getVolumeLevel() ?? 0) > 0.02) {
+        heardVoice.current = true;
+        setVoice('heard');
+      }
+    }, 200);
+    return () => clearInterval(id);
+  }, [agentUid]);
+  useEffect(() => {
+    if (!joined) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = async () => {
+      if (cancelled || heardVoice.current) return;
+      if (voiceAttempts.current >= MAX_VOICE_RECONNECTS) {
+        setVoice('failed');
+        return;
+      }
+      voiceAttempts.current += 1;
+      setVoice('reconnecting');
+      onAgentChange(''); // the server is about to report a different agent: not a call that ended
+      const restarted = await postJSON('/api/sandbox', { id: sandbox.id, action: 'restart_voice' }, 10_000).catch(() => null);
+      if (cancelled) return;
+      if (!restarted?.ok) {
+        setVoice('failed');
+        return;
+      }
+      const invited = await postJSON<{ agent_id?: string }>(
+        '/api/invite-agent',
+        { sandbox_id: sandbox.id, channel_name: session.channel, requester_id: session.uid, reconnect: true },
+        20_000,
+      ).catch(() => null);
+      if (cancelled) return;
+      if (invited?.ok && invited.data.agent_id) onAgentChange(invited.data.agent_id);
+      timer = setTimeout(() => void check(), VOICE_WINDOW_MS);
+    };
+    timer = setTimeout(() => void check(), VOICE_WINDOW_MS);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [joined]);
 
   const transcript = useMemo(() => normalizeTranscript(raw, String(client.uid)), [raw, client.uid]);
 
@@ -281,6 +354,16 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd }: Pr
       {micError && (
         <p className="mx-5 mt-3 rounded-xl bg-warn/10 px-3 py-2 text-[12px] text-warn">
           Microphone unavailable. You can still type to Vigil below.
+        </p>
+      )}
+      {voice === 'reconnecting' && (
+        <p className="mx-5 mt-3 rounded-xl bg-sky/10 px-3 py-2 text-[12px] text-sky" data-testid="voice-reconnecting" role="status">
+          Reconnecting Vigil’s voice…
+        </p>
+      )}
+      {voice === 'failed' && (
+        <p className="mx-5 mt-3 rounded-xl bg-warn/10 px-3 py-2 text-[12px] text-warn" role="status">
+          Vigil’s voice isn’t connecting right now. End the call and call back in a minute.
         </p>
       )}
 

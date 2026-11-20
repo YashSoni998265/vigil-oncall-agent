@@ -49,6 +49,8 @@ export const MAX_CALLS_PER_SANDBOX = Number(process.env.MAX_CALLS_PER_SANDBOX ??
 /** The owner's own calls (demos, judges' questions) may run longer than public demo calls. */
 export const OWNER_MAX_CALL_SECONDS = Number(process.env.OWNER_MAX_CALL_SECONDS ?? 900);
 export const DAILY_CALL_CAP = Number(process.env.DAILY_CALL_CAP ?? 60);
+/** Fresh agents the call screen may swap in when Vigil's voice never starts (per call). */
+export const MAX_VOICE_RESTARTS = 2;
 
 const nowIso = (t = Date.now()) => new Date(t).toISOString();
 const uid = () => randomBytes(6).toString('hex');
@@ -461,9 +463,11 @@ export async function markAgentStarted(
   id: string,
   info: { agentId: string; channel: string; engineerUid: string; toolsVia: 'rest' | 'mcp' },
   owner = false,
+  reconnect = false,
 ): Promise<void> {
-  // The owner's own rehearsals never use up the shared daily cap that protects public visitors.
-  if (!owner) await incrementDailyCalls();
+  // The owner's own rehearsals never use up the shared daily cap that protects public visitors,
+  // and a voice reconnect is the same call, so it never counts twice.
+  if (!owner && !reconnect) await incrementDailyCalls();
   await mutateSandbox(id, (d) => {
     if (!d.call) return;
     d.call.agentId = info.agentId;
@@ -472,11 +476,11 @@ export async function markAgentStarted(
     d.call.toolsVia = info.toolsVia;
     d.call.maxSeconds = owner ? OWNER_MAX_CALL_SECONDS : MAX_CALL_SECONDS;
     d.call.lastSeenAt = nowIso();
-    d.callsUsed += 1;
+    if (!reconnect) d.callsUsed += 1;
     pushAction(d, {
       tool: 'call',
       kind: 'system',
-      title: 'Vigil joined the call',
+      title: reconnect ? 'Vigil rejoined the call' : 'Vigil joined the call',
       detail: `Agora Conversational AI · Murf Falcon 2.1 · 13 tools over ${info.toolsVia === 'mcp' ? 'MCP' : 'HTTPS'}`,
     });
   });
@@ -499,6 +503,32 @@ export async function failCall(id: string, why: string): Promise<void> {
     d.call.endReason = 'connect_failed';
     pushAction(d, { tool: 'call', kind: 'failed', title: 'Call could not connect', detail: why.slice(0, 160), phase: 'after' });
   });
+}
+
+/**
+ * Safety net: the call screen heard no voice from Vigil in the first seconds of the call (Agora's
+ * speech output sometimes fails to connect to Murf, and then the whole call stays silent). Stop the
+ * silent agent; the screen then invites a fresh one into the same call. At most MAX_VOICE_RESTARTS.
+ */
+export async function restartVoice(id: string): Promise<{ ok: boolean; effects: Effect[] }> {
+  const effects: Effect[] = [];
+  let ok = false;
+  await mutateSandbox(id, (d) => {
+    const call = d.call;
+    if (call?.status !== 'active' || (call.voiceRestarts ?? 0) >= MAX_VOICE_RESTARTS) return;
+    const silent = call.agentId; // null if the previous swap's invite failed: just try again
+    call.voiceRestarts = (call.voiceRestarts ?? 0) + 1;
+    call.agentId = null;
+    pushAction(d, {
+      tool: 'call',
+      kind: 'system',
+      title: 'Reconnecting Vigil’s voice',
+      detail: `No audio from Vigil in the first seconds of the call (attempt ${call.voiceRestarts}). Starting a fresh voice connection.`,
+    });
+    if (silent) effects.push(async () => stopAgent(silent));
+    ok = true;
+  });
+  return { ok, effects };
 }
 
 export async function endCall(id: string, agentId?: string | null): Promise<Effect[]> {

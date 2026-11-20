@@ -12,6 +12,7 @@ import {
   mergeCaptions,
   newSandbox,
   resetSandbox,
+  restartVoice,
   runEffects,
   setEngineer,
   teammateAsk,
@@ -79,6 +80,12 @@ export async function POST(request: NextRequest) {
     case 'heartbeat':
       await heartbeat(id);
       return NextResponse.json({ ok: true });
+    case 'restart_voice': {
+      // Stop the silent agent before answering, so the fresh one never shares the call with it.
+      const r = await restartVoice(id);
+      await runEffects(r.effects);
+      return NextResponse.json({ ok: r.ok }, { status: r.ok ? 200 : 409 });
+    }
     case 'captions': {
       const lines = Array.isArray(body.lines) ? (body.lines as { who: string; text: string }[]) : [];
       await mergeCaptions(id, lines);
