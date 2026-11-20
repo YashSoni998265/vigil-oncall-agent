@@ -3,7 +3,7 @@
 Each scenario is a list of (silence seconds | (voice, sentence)). Output: 48 kHz mono
 16-bit PCM WAV (no metadata chunks), which Chrome's fake audio capture accepts.
 Voices are macOS Indian-English voices: Tara (the on-call engineer) and Aman (the teammate).
-Usage: python3 make-audio.py media
+Usage: python3 make-audio.py media [scenario ...]
 """
 import os
 import subprocess
@@ -11,7 +11,9 @@ import sys
 import tempfile
 
 OUT = sys.argv[1] if len(sys.argv) > 1 else "media"
+ONLY = set(sys.argv[2:])  # optional: build only these scenarios
 ENG, MATE = "Tara", "Aman"
+HINDI = "Lekha"  # macOS Hindi voice: an engineer who switches to Hindi under stress
 
 SCENARIOS = {
     # The hero flow: blocked rollback -> flag off -> verified -> comms -> teammate -> resolve.
@@ -39,6 +41,12 @@ SCENARIOS = {
         21, (ENG, "What do the database logs and the support tickets say?"), 26,
         (ENG, "Should we just restart the database?"), 20,
         (ENG, "Okay. Yes, pause the job."), 32,
+    ],
+    # Hindi under stress: "bhai, kya dikkat hai?" must get a calm Hinglish answer, and a Hindi
+    # "haan, flag band kar do" must work as the approval.
+    "V12_hinglish": [
+        21, (HINDI, "भाई, क्या दिक्कत है?"), 24,
+        (HINDI, "हाँ, फ्लैग बंद कर दो।"), 30,
     ],
     "silence": [150],
     "teammate": [6, (MATE, "Hi Vigil, Arjun here. What happened?"), 40],
@@ -77,4 +85,6 @@ def build(name, parts, workdir):
 os.makedirs(OUT, exist_ok=True)
 with tempfile.TemporaryDirectory() as tmp:
     for scenario, parts in SCENARIOS.items():
+        if ONLY and scenario not in ONLY:
+            continue
         build(scenario, parts, tmp)

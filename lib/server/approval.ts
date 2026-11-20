@@ -7,13 +7,17 @@ import type { CaptionLine } from '@/lib/types';
 
 export const APPROVAL_WINDOW_MS = 120_000;
 
+// English plus Hindi and Hinglish as speech recognition writes them (Roman script). A "no" always
+// wins over a "yes" in the same words: "mat karo" (don't) or "abhi nahi" (not now) never approve.
 const AFFIRM =
-  /\b(yes|yeah|yep|yup|ya|sure|ok|okay|alright|go ahead|go for it|do it|do that|proceed|approved?|approve it|confirm(ed)?|please do|let'?s do it|let'?s go|roll (it )?back|rollback|disable (it|the flag)|turn (it|the flag) off|switch (it|the flag) off|fail ?over|pause (it|the job)|cancel (it|the query)|haan|han|ha|theek hai|kar do|karo)\b/i;
+  /\b(yes|yeah|yep|yup|ya|sure|ok|okay|alright|go ahead|go for it|do it|do that|proceed|approved?|approve it|confirm(ed)?|please do|let'?s do it|let'?s go|roll (it )?back|rollback|disable (it|the flag)|turn (it|the flag) off|switch (it|the flag) off|fail ?over|pause (it|the job)|cancel (it|the query)|haan|han|ha|haanji|haan ji|ji haan|theek hai|thik hai|theek he|thik he|bilkul|zaroor|jaroor|kar do|kardo|kar dijiye|kar dijie|kijiye|karo|chalo|chaliye|ho jaye)\b/i;
 const NEGATE =
-  /\b(no|nope|nah|don'?t|do not|wait|hold on|hold off|stop|not yet|never ?mind|cancel that|abort|nahi|mat|ruko)\b/i;
-const HEDGE = /\b(maybe|perhaps|not sure|i guess|might|let me think|hmm+|probably|i think so)\b/i;
+  /\b(no|nope|nah|don'?t|do not|wait|hold on|hold off|stop|not yet|never ?mind|cancel that|abort|nahi|nahin|nai|mat|ruko|ruk jao|ruk jaiye|thehro|rehne do|rahne do|na karo|na kare|ek minute|ek second|ek sec)\b/i;
+const HEDGE = /\b(maybe|perhaps|not sure|i guess|might|let me think|hmm+|probably|i think so|shayad|lagta hai|dekhte hain|sochte hain)\b/i;
 const QUESTION_START =
-  /^(should|shall|can|could|would|will|do|does|did|is|are|was|what|why|how|which|who|when|where)\b/i;
+  /^(should|shall|can|could|would|will|do|does|did|is|are|was|what|why|how|which|who|when|where|kya|kyun|kyon|kaise|kab|kaun|kahan|kitna|kitni|kitne|kis|kisne)\b/i;
+// Hinglish questions often end with "kya": "rollback kar du kya".
+const QUESTION_END = /\bkya\s*\??\s*$/i;
 
 export function normalizeWords(text: string): string {
   return text
@@ -33,7 +37,7 @@ export function classifyApproval(raw: string): { ok: true } | { ok: false; reaso
   if (!text) return { ok: false, reason: 'empty', message: 'No approval was given.' };
   const words = normalizeWords(text);
   const imperativeDo = /^do (it|that|this|so)\b/.test(words);
-  if (/\?\s*$/.test(text) || (QUESTION_START.test(words) && !imperativeDo)) {
+  if (/\?\s*$/.test(text) || (QUESTION_START.test(words) && !imperativeDo) || QUESTION_END.test(words)) {
     return { ok: false, reason: 'question', message: 'That was a question, not an approval.' };
   }
   if (NEGATE.test(text)) return { ok: false, reason: 'negative', message: 'The engineer said no or asked to wait.' };

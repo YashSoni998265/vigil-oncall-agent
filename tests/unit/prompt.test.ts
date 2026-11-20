@@ -77,6 +77,9 @@ test('instructions: engineer level by default, plain words on request, grounded 
     assert.match(text, /"How do you know\?"/);
     assert.match(text, /Evidence you found: /);
     assert.match(text, /General questions are welcome/);
+    assert.match(text, /Language: speak English by default\. If .* speaks Hindi or Hinglish/);
+    assert.match(text, /never in Devanagari script/);
+    assert.match(text, /use feminine forms for yourself/);
     assert.match(text, /You cannot look up live news, weather, scores or prices/);
     assert.match(text, /Plain words for common terms/);
     assert.match(text, /Murf Falcon 2\.1, voice Anisha/);

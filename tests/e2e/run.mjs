@@ -47,6 +47,8 @@ const SCENARIOS = {
   // Voice safety net: the call screen treats the first agent as silent (test hook), swaps in a fresh
   // agent on the same call, and that agent must work end to end.
   V11_reconnect: { incident: 'bad_deploy', audio: 'silence', duration: 50, silentFirst: true, typed: [[32, 'Okay, turn the flag off.']] },
+  // An engineer under stress speaks Hindi: a calm Hinglish answer, and a Hindi yes that works.
+  V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
   // A judge's cross-questions, typed into a live call: evidence, plan B, risk and undo, plain words,
   // questions about Vigil itself, and an off-topic one. None of them may change production.
   V10_whatif: {
@@ -106,6 +108,15 @@ const CHECKS = {
     ['typed yes → flag switched off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
   ],
   V8_heartbeat: (h) => [['closing the tab ends the call (heartbeat)', h.call?.status === 'ended' && h.call.endReason === 'connection_lost']],
+  V12_hinglish: (h) => {
+    const heard = h.transcript.filter((l) => l.who === 'engineer').map((l) => l.text).join(' | ');
+    const replies = h.transcript.filter((l) => l.who === 'agent').slice(1).map((l) => l.text).join(' ');
+    return [
+      [`Hindi speech reached Vigil as text: "${heard.slice(0, 90)}"`, /kya|dikkat|haan|han|flag|band/i.test(heard)],
+      [`Vigil answered in Hinglish, in English letters: "${replies.slice(0, 110)}"`, /\b(hai|hoon|kar|rahi|nahi|aap|ki|ka|ko|mein)\b/i.test(replies) && !/[\u0900-\u097F]/.test(replies)],
+      ['the Hindi "haan, flag band kar do" switched the flag off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+    ];
+  },
   V11_reconnect: (h) => [
     ['the silent first agent was swapped for a fresh one', h.actions?.some((a) => a.title === 'Reconnecting Vigil’s voice') && h.actions?.some((a) => a.title === 'Vigil rejoined the call')],
     ['the swap did not count as a new call', h.callsUsed === 1],

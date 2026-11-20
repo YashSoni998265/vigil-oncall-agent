@@ -27,6 +27,8 @@ const KEYWORDS = [
   'Vigil', 'Thali', 'rollback', 'roll back', 'feature flag', 'coupon', 'coupon engine', 'payments', 'checkout',
   'PayNova', 'Cashly', 'UPI', 'failover', 'fail over', 'orders database', 'merchant weekly report', 'status page',
   'postmortem', 'Arjun', 'Neha', 'Kabir', 'Sana', 'Priya', 'incident', 'runbook',
+  // Hinglish an engineer may use under stress; recognition stays English (India), one language a call.
+  'bhai', 'kya', 'dikkat', 'haan', 'theek hai', 'kar do', 'band kar do', 'nahi', 'mat karo', 'ruko', 'jaldi',
 ];
 
 export async function POST(request: NextRequest) {
