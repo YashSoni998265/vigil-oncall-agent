@@ -8,6 +8,8 @@
 
 When production breaks, Vigil investigates first, phones the on-call engineer with the diagnosis, makes the fix only after a spoken **yes**, recovers when a fix fails, proves the recovery from live metrics, and closes the loop.
 
+[![Demo video](https://img.shields.io/badge/Demo%20video-3%20min-FF0000?logo=youtube&logoColor=white)](https://youtu.be/EKxkL8olLyY)
+[![Live demo](https://img.shields.io/badge/Live%20demo-vigil--oncall.vercel.app-8B7CFF)](https://vigil-oncall.vercel.app)
 [![CI](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/YashSoni998265/vigil-oncall-agent/actions/workflows/ci.yml)
 ![Agora Conversational AI](https://img.shields.io/badge/Agora-Conversational%20AI-099DFD)
 ![Agora RTC + RTM](https://img.shields.io/badge/Agora-RTC%20%2B%20RTM-099DFD)
@@ -15,13 +17,13 @@ When production breaks, Vigil investigates first, phones the on-call engineer wi
 ![Next.js](https://img.shields.io/badge/Next.js-16-000000)
 ![License](https://img.shields.io/badge/license-MIT-2ea44f)
 
-Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intelligent Action**
+Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intelligent Action** · built solo by [Yash Soni](https://github.com/YashSoni998265)
 
-[Live demo](#try-it) · [PS31 fit](#built-for-ps31) · [How it works](#how-it-works) · [Built on Agora and Murf](#built-on-agora-and-murf) · [Safety](#safety-enforced-in-code) · [Tested](#tested-end-to-end) · [Scale](#from-demo-to-production) · [Run it](#run-it)
+[Watch the demo](https://youtu.be/EKxkL8olLyY) · [Try it live](#try-it) · [One real call](#one-real-call-start-to-finish) · [PS31 fit](#built-for-ps31) · [How it works](#how-it-works) · [Built on Agora and Murf](#built-on-agora-and-murf) · [Safety](#safety-enforced-in-code) · [Tested](#tested-end-to-end) · [Scale](#from-demo-to-production) · [Run it](#run-it)
 
 </div>
 
-![Vigil console during an incident](docs/screenshots/console-incident.png)
+[![Watch the 3-minute demo: a real call with Vigil](docs/screenshots/demo-video.jpg)](https://youtu.be/EKxkL8olLyY)
 
 ## At a glance
 
@@ -30,8 +32,39 @@ Build with Agora · Bengaluru 2026 · **ps31: From Workplace Assistance to Intel
 | **Problem–solution fit** | PS31's before → during → action → after, applied to the workplace's most stressful job: the on-call page at 2:47 AM. [See the mapping](#built-for-ps31). |
 | **Innovation** | Investigates before it pages. A spoken yes is checked by the server, not trusted from the model. Recovery is proven from live metrics, and Vigil says so unprompted. It answers judges' "what ifs" from facts and remembers past incidents. [What's new](#whats-new). |
 | **Use of Agora and Murf** | Conversational AI Engine, ARES, Agora-managed GPT-4.1 mini, 13 tools (as HTTPS tools or over MCP), the think API, RTM, multi-party RTC, filler words, and Murf Falcon 2.1 for every spoken word. [Built on](#built-on-agora-and-murf). |
-| **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 65/65 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
+| **Product functionality** | A live site with a private sandbox for every visitor, three incidents, typed fallback, status page and postmortem. 72/72 API checks pass on the live site, and the voice tests run the real pipeline. [Try it](#try-it) · [Tested](#tested-end-to-end). |
 | **Future scope and scale** | Real integrations through APIs or MCP, real phone calls through Agora, Hindi and Hinglish, and under ₹30 per incident call. [From demo to production](#from-demo-to-production). |
+
+## One real call, start to finish
+
+Every frame below comes from one real call on Agora's Conversational AI Engine, taken from the [demo video](https://youtu.be/EKxkL8olLyY) (3 min 39 s). Jump to: [the investigation](https://youtu.be/EKxkL8olLyY?t=31) · [the call](https://youtu.be/EKxkL8olLyY?t=47) · [the refused rollback](https://youtu.be/EKxkL8olLyY?t=69) · ["explain that simply"](https://youtu.be/EKxkL8olLyY?t=93) · [approval by voice](https://youtu.be/EKxkL8olLyY?t=118) · [an interruption](https://youtu.be/EKxkL8olLyY?t=135) · [the unprompted recovery](https://youtu.be/EKxkL8olLyY?t=158) · [the postmortem](https://youtu.be/EKxkL8olLyY?t=175).
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/story-investigates.jpg" alt="Vigil investigates before it calls" /></td>
+    <td width="50%"><img src="docs/screenshots/story-calls.jpg" alt="Vigil calls the engineer with the diagnosis" /></td>
+  </tr>
+  <tr>
+    <td><b>1. Investigates before it wakes anyone.</b> The impact, the deploy that went out a minute earlier, 1,704 errors in the logs and the team's runbook. Then it calls.</td>
+    <td><b>2. Calls with the diagnosis.</b> A real voice call on Agora's Conversational AI Engine. Every word is Murf Falcon 2.1.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/story-refuses.jpg" alt="The server refuses an unsafe rollback" /></td>
+    <td><img src="docs/screenshots/story-approved.jpg" alt="The feature flag goes off after a spoken yes" /></td>
+  </tr>
+  <tr>
+    <td><b>3. Refuses an unsafe fix, even an approved one.</b> The deploy guard blocks a rollback past an irreversible migration. Vigil explains why and offers the safe fix.</td>
+    <td><b>4. Acts only on your yes.</b> "Okay, turn the flag off." The server checks those exact words before anything changes.</td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/story-speaks-up.jpg" alt="Vigil announces the recovery without being asked" /></td>
+    <td><img src="docs/screenshots/story-closes-loop.jpg" alt="Postmortem with follow-up tickets and owners" /></td>
+  </tr>
+  <tr>
+    <td><b>5. Speaks up on its own.</b> It watches live metrics and says when errors are back to baseline, through Agora's think API.</td>
+    <td><b>6. Closes the loop.</b> A status page for customers, follow-up tickets with owners, and a postmortem drafted before standup.</td>
+  </tr>
+</table>
 
 ## 2:47 AM
 
@@ -91,25 +124,6 @@ PS31's required demo flow (initiate → understand → execute → confirm → f
 | 📣 **Closes the loop** | Public status page, incident channel, follow-up tickets with owners (optionally opened as **real GitHub issues**), a blameless postmortem with timeline and approvals. |
 | ⏰ **Never drops a page** | No answer in 30 s: rings again, then pages the secondary on-call with the full diagnosis. |
 
-<table>
-  <tr>
-    <td width="50%"><img src="docs/screenshots/landing-hero.png" alt="Vigil product page" /></td>
-    <td width="50%"><img src="docs/screenshots/console-call.png" alt="On the call with Vigil" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Product page</b></td>
-    <td align="center"><b>On the call: transcript, typed fallback, suggested lines</b></td>
-  </tr>
-  <tr>
-    <td><img src="docs/screenshots/postmortem.png" alt="Postmortem drafted by Vigil" /></td>
-    <td><img src="docs/screenshots/status-page.png" alt="Public status page updated by Vigil" /></td>
-  </tr>
-  <tr>
-    <td align="center"><b>Postmortem, drafted on resolve</b></td>
-    <td align="center"><b>Status page customers see</b></td>
-  </tr>
-</table>
-
 ## Try it
 
 **Live demo: [vigil-oncall.vercel.app](https://vigil-oncall.vercel.app)** (Chrome with a microphone works best; you can also type your replies). Open the console, pick an incident and **break production (safely)**. Every visitor gets a private sandbox of Thali, a fictional food-delivery company, so nothing real is harmed and visitors never collide. Prefer your own machine? [Run it](#run-it) locally in two minutes.
@@ -122,7 +136,29 @@ PS31's required demo flow (initiate → understand → execute → confirm → f
 
 Say (or tap): *"Yes, roll it back."* · *"Why did it fail?"* · *"Okay, turn the flag off."* · *"Is it fixed?"* · *"Update the status page."* · *"Add Arjun to the call."* · *"Resolve it and write the postmortem."*
 
+**The two-minute path:**
+1. Open the [console](https://vigil-oncall.vercel.app/console). You get a private sandbox. To be greeted by your own name, click the name next to **On call** at the top and change it.
+2. On **Bad deploy breaks checkout**, press **Break it**. Vigil investigates, and the phone rings within seconds.
+3. Answer and allow the microphone (or type). Say *"Yes, roll it back."* The server refuses it, and Vigil explains why.
+4. Say *"Okay, turn the flag off."* About 30 seconds later, Vigil tells you, unprompted, that checkout has recovered.
+5. Say *"Update the status page"*, then *"Resolve it and write the postmortem."* Open the postmortem from the side panel.
+
+Public calls last up to five minutes, and a daily limit protects the free credits. If today's calls are used up, the [demo video](https://youtu.be/EKxkL8olLyY) shows the same flow.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/screenshots/console-incident.png" alt="Vigil console during an incident" /></td>
+    <td width="50%"><img src="docs/screenshots/status-page.png" alt="Public status page updated by Vigil" /></td>
+  </tr>
+  <tr>
+    <td align="center"><b>Your private console during an incident</b></td>
+    <td align="center"><b>The status page customers see</b></td>
+  </tr>
+</table>
+
 ## How it works
+
+![How Vigil works: Agora's Conversational AI Engine (speech recognition, GPT-4.1 mini, Murf Falcon 2.1), 13 tools over MCP or HTTPS, and the think API](docs/screenshots/architecture.jpg)
 
 ```
                  Alert ──► Vigil investigates (read-only tools) ──► phone rings with the diagnosis
@@ -206,7 +242,7 @@ What testing caught before any judge saw it:
 - An agent that tried to treat "Should we roll back?" as a yes, which the server blocked, as designed.
 - From a manual run on the live site: a recovery update that waited for the engineer to speak first. Agora's think API was set to `inject` instead of `interrupt`.
 - Also from that run: side tabs that were clipped on laptop screens.
-- From the cross-question test (V10): asked "who built you?", Vigil said Agora. It now says a solo developer built it for the hackathon, on Agora's platform.
+- From the cross-question test (V10): asked "who built you?", Vigil said Agora. It now says Yash Soni built it, solo, for the hackathon, on Agora's platform.
 
 ## From demo to production
 
@@ -287,6 +323,8 @@ tests/  unit/  api.sh  e2e/
 
 ## Credits
 
-Built on Agora's [Conversational AI Next.js quickstart](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-nextjs) (MIT). Voice by [Murf Falcon 2.1](https://murf.ai/api/docs/text-to-speech-models/falcon-2-1) (Anisha). Thali, its people and its production are fictional; the Agora and Murf pipeline is real.
+Built solo by **Yash Soni** ([@YashSoni998265](https://github.com/YashSoni998265)) for Build with Agora, Bengaluru 2026.
+
+Built on Agora's [Conversational AI Next.js quickstart](https://github.com/AgoraIO-Conversational-AI/agent-quickstart-nextjs) (MIT). Vigil's voice is [Murf Falcon 2.1](https://murf.ai/api/docs/text-to-speech-models/falcon-2-1) (Anisha). In the [demo video](https://youtu.be/EKxkL8olLyY), the narration and the engineer's lines are Murf Falcon 2.1 too (Abhinav); the call itself is real, with pauses trimmed. Thali, its people and its production are fictional; the Agora and Murf pipeline is real.
 
 Released under the [MIT License](LICENSE).
