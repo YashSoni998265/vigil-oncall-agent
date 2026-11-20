@@ -123,3 +123,23 @@ test('resolving closes out in order: resolved, status page, postmortem, tickets,
   assert.match(order[3], /Filed 3 action items from the postmortem as tickets/);
   assert.equal(d?.incident?.statusUpdates.at(-1)?.status, 'resolved');
 });
+
+test("the engineer's own words must not name a different change, even behind a bare quoted yes", async () => {
+  const { store, tools, id } = await liveIncident(['Yes, turn the flag off.']);
+  // A misquoting model: the engineer approved the flag, the model asks to scale payments-service with "Yes.".
+  const r = await tools.runTool('execute_remediation', id, { action: 'scale_service', target: 'payments-service', approval_quote: 'Yes.' });
+  const body = r.body as Record<string, unknown>;
+  assert.equal(body.executed, false);
+  assert.equal(body.blocked, true);
+  assert.match(String(body.reason), /disable feature flag/);
+  const d = await store.readSandbox(id);
+  assert.equal(d?.incident?.remediations.length, 0, 'nothing ran');
+});
+
+test('Hindi mode hears the announcements in Hinglish; English stays English', async () => {
+  const { recoveryAnnouncement, canaryAnnouncement } = await import('../../lib/server/announce');
+  assert.match(recoveryAnnouncement('Yash', 'Checkout errors', '1.0%', '0.4%', 'hi'), /achhi khabar: checkout errors wapas 1 percent par/);
+  assert.match(canaryAnnouncement('Yash', 'Checkout errors', '0.6%', '18.2%', true, 10, 'hi'), /canary healthy hai: 10 percent group mein/);
+  assert.doesNotMatch(canaryAnnouncement('Yash', 'Checkout errors', '0.6%', '18.2%', true, 10, 'hi'), /[ऀ-ॿ]/);
+  assert.match(recoveryAnnouncement('Yash', 'Checkout errors', '1.0%', '0.4%'), /^Yash, good news/);
+});

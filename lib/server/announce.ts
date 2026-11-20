@@ -2,13 +2,21 @@
 // a "think" update that arrives while Vigil is mid-turn can be queued and never spoken, and these
 // moments (the canary result, the confirmed recovery) are the proof that a change worked.
 
-/** Said when live metrics confirm the fix. */
-export function recoveryAnnouncement(engineer: string, metricLabel: string, value: string, baseline: string): string {
+/** Said when live metrics confirm the fix. In Hindi mode, in Hinglish (Roman letters, read by the same voice). */
+export function recoveryAnnouncement(engineer: string, metricLabel: string, value: string, baseline: string, language: 'en' | 'hi' = 'en'): string {
+  if (language === 'hi') {
+    return `${engineer}, achhi khabar: ${label(metricLabel)} wapas ${spoken(value)} par, ${spoken(baseline)} baseline ke paas. Live metrics ne fix confirm kar diya hai. Status page update karke incident channel mein post kar doon?`;
+  }
   return `${engineer}, good news: ${label(metricLabel)} ${verb(metricLabel)} back to ${spoken(value)}, near the ${spoken(baseline)} baseline. Live metrics confirm the fix. Shall I update the status page and post in the incident channel?`;
 }
 
 /** Said when a staged change's canary check finishes: rolled out to everyone, or reverted. */
-export function canaryAnnouncement(engineer: string, metricLabel: string, canary: string, rest: string, healthy: boolean, percent: number): string {
+export function canaryAnnouncement(engineer: string, metricLabel: string, canary: string, rest: string, healthy: boolean, percent: number, language: 'en' | 'hi' = 'en'): string {
+  if (language === 'hi') {
+    return healthy
+      ? `${engineer}, canary healthy hai: ${percent} percent group mein ${label(metricLabel)} ${spoken(canary)}, baaki sab ke liye ${spoken(rest)}. Ab main ise sab ke liye roll out kar rahi hoon.`
+      : `${engineer}, canary se fayda nahi hua: ${percent} percent group mein ${label(metricLabel)} abhi bhi ${spoken(canary)}, isliye maine change automatically revert kar diya hai. Chaliye agla option dekhte hain.`;
+  }
   return healthy
     ? `${engineer}, the canary looks healthy: ${label(metricLabel)} ${verb(metricLabel)} ${spoken(canary)} in the ${percent} percent group, against ${spoken(rest)} for everyone else. Rolling it out to everyone now.`
     : `${engineer}, the canary did not help: ${label(metricLabel)} ${verb(metricLabel)} still ${spoken(canary)} in the ${percent} percent group, so I have reverted the change automatically. Let us look at the next option.`;

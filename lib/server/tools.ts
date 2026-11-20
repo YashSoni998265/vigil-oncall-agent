@@ -346,6 +346,20 @@ async function executeRemediation(sb: Sandbox, action: RemediationAction, rawTar
     });
   }
   const matched = verdict.matched;
+  // The engineer's own words must not name a different change either: "yes, turn the flag off" can
+  // never approve a restart, even if the model's quote of those words is only a bare "yes".
+  const namedInWords = approvalNamesOtherAction(matched.text, action);
+  if (namedInWords) {
+    await mutateSandbox(sb.id, (d) => {
+      pushAction(d, { tool: 'execute_remediation', kind: 'blocked', title: `Blocked: ${what}`, detail: `${d.engineer}'s words "${matched.text.slice(0, 60)}" were about ${namedInWords.replace(/_/g, ' ')}, not this change.` });
+    });
+    return ok({
+      executed: false,
+      blocked: true,
+      reason: `${sb.engineer}'s words were about ${namedInWords.replace(/_/g, ' ')}, not ${what}.`,
+      instruction: `Do not change production. Ask ${sb.engineer} for a clear yes to "${what}" first.`,
+    });
+  }
 
   // 2. Idempotency: the same successful fix is never applied twice.
   const done = inc.remediations.find((r) => r.action === action && r.target === target && r.outcome === 'success');

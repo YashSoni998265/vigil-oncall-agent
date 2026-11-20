@@ -205,7 +205,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
       }
       if (d.call?.status === 'active' && d.call.agentId && d.call.channel) {
         const { agentId, channel } = d.call;
-        const sentence = canaryAnnouncement(d.engineer, m.label, canary, rest, healthy, CANARY_PERCENT);
+        const sentence = canaryAnnouncement(d.engineer, m.label, canary, rest, healthy, CANARY_PERCENT, d.language ?? 'en');
         effects.push(async () => agentSpeak(agentId, channel, sentence).catch(() => {}));
       }
     }
@@ -229,7 +229,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
         // Vigil says this exact sentence (Agora speak API, queued after any reply in progress).
         // A "think" update that lands while Vigil is mid-turn can be queued and never spoken.
         // The spoken sentence joins the agent's history, so a following "yes" still makes sense.
-        const spoken = recoveryAnnouncement(d.engineer, m.label, value, baseline);
+        const spoken = recoveryAnnouncement(d.engineer, m.label, value, baseline, d.language ?? 'en');
         const fallback = `${SYSTEM_UPDATE_MARK} Live monitoring update (not from the engineer): ${m.label} has recovered to ${value}, near the ${baseline} baseline and well inside the ${fmtMetric(m, m.threshold)} alert threshold. The fix is confirmed by live metrics. Tell ${d.engineer} in one short sentence, then offer to update the status page and post in the incident channel.`;
         effects.push(async () => agentSpeak(agentId, channel, spoken).catch(() => agentThink(agentId, channel, fallback)));
       }
