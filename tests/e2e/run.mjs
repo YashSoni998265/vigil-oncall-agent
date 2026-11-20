@@ -49,6 +49,14 @@ const SCENARIOS = {
   V11_reconnect: { incident: 'bad_deploy', audio: 'silence', duration: 50, silentFirst: true, typed: [[32, 'Okay, turn the flag off.']] },
   // An engineer under stress speaks Hindi: a calm Hinglish answer, and a Hindi yes that works.
   V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
+  // The production-grade flow, typed: what was ruled out, the canary and rollout (announced), the
+  // unprompted recovery, comms, then the ordered close-out with tickets.
+  V15_production: {
+    incident: 'bad_deploy',
+    audio: 'silence',
+    duration: 152,
+    typed: [[26, 'What did you rule out?'], [44, 'Yes, start.'], [106, 'Yes, update the status page and post in the incident channel.'], [124, 'Resolve it and file the tickets.']],
+  },
   // A judge's cross-questions, typed into a live call: evidence, plan B, risk and undo, plain words,
   // questions about Vigil itself, and an off-topic one. None of them may change production.
   V10_whatif: {
@@ -115,6 +123,21 @@ const CHECKS = {
       [`Hindi speech reached Vigil as text: "${heard.slice(0, 90)}"`, /kya|dikkat|haan|han|flag|band/i.test(heard)],
       [`Vigil answered in Hinglish, in English letters: "${replies.slice(0, 110)}"`, /\b(hai|hoon|kar|rahi|nahi|aap|ki|ka|ko|mein)\b/i.test(replies) && !/[\u0900-\u097F]/.test(replies)],
       ['the Hindi "haan, flag band kar do" switched the flag off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+    ];
+  },
+  V15_production: (h) => {
+    const agent = h.transcript.filter((l) => l.who === 'agent').map((l) => l.text);
+    const all = agent.join(' ');
+    const change = h.incident?.changes?.[0];
+    const numbered = (h.actions ?? []).map((a) => a.title).filter((t) => /^[1-5]\. /.test(t)).map((t) => t.slice(0, 2)).join('');
+    return [
+      ['"what did you rule out?" answered with evidence', /ruled out|orders-db|database|PayNova|Cashly|gateway|healthy/i.test(all)],
+      [`the flag went to a 10% canary, then rolled out (${change?.status ?? 'none'})`, change?.status === 'rolled_out'],
+      ['Vigil announced the canary result out loud', agent.some((t) => /canary looks healthy/i.test(t))],
+      ['Vigil announced the recovery unprompted', agent.some((t) => /good news/i.test(t))],
+      ['status page updated to monitoring', h.incident?.statusUpdates.some((u) => u.status === 'monitoring')],
+      [`resolved, closing out in order (${numbered})`, h.incident?.status === 'resolved' && numbered === '1.2.3.4.5.'],
+      [`action items filed as tickets (${h.incident?.followUps.length ?? 0})`, (h.incident?.followUps.length ?? 0) >= 3],
     ];
   },
   V11_reconnect: (h) => [
