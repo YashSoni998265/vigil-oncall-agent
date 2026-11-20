@@ -110,7 +110,8 @@ export async function viewSandbox(id: string, ownerKey?: string | null): Promise
   const owner = isOwner(ownerKey);
   return {
     view: {
-      sandbox,
+      // Older sandboxes have no language yet: they are English.
+      sandbox: { ...sandbox, language: sandbox.language ?? 'en' },
       now: Date.now(),
       limits: {
         callsLeft: owner ? 99 : Math.max(0, MAX_CALLS_PER_SANDBOX - sandbox.callsUsed),
@@ -399,6 +400,15 @@ export async function setEngineer(id: string, name: string): Promise<boolean> {
   if (!clean) return false;
   await mutateSandbox(id, (d) => {
     d.engineer = clean;
+  });
+  return true;
+}
+
+/** The engineer's call language ('en' or 'hi'). Like the name, it stays for every incident until changed. */
+export async function setLanguage(id: string, language: string): Promise<boolean> {
+  if (language !== 'en' && language !== 'hi') return false;
+  await mutateSandbox(id, (d) => {
+    d.language = language;
   });
   return true;
 }

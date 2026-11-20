@@ -1,6 +1,6 @@
 // End-to-end voice tests for Vigil. A headless Chrome plays recorded Indian-English speech
 // into a fake microphone, so the whole real pipeline runs:
-// Agora RTC → ARES ASR (en-IN) → GPT-4.1 mini (Agora-managed) → our 13 tools → Murf Falcon TTS.
+// Agora RTC → ARES ASR (en-IN, or hi-IN in Hindi mode) → GPT-4.1 mini (Agora-managed) → our 13 tools → Murf Falcon TTS.
 // Usage: node run.mjs <scenario> [<scenario> ...]   (needs `pnpm dev`, the tunnel, and media/ from make-audio.py)
 // Set SERVER_LOG to the dev server's log file to capture tool calls.
 import puppeteer from 'puppeteer-core';
@@ -49,6 +49,9 @@ const SCENARIOS = {
   V11_reconnect: { incident: 'bad_deploy', audio: 'silence', duration: 50, silentFirst: true, typed: [[32, 'Okay, turn the flag off.']] },
   // An engineer under stress speaks Hindi: a calm Hinglish answer, and a Hindi yes that works.
   V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
+  // Hindi mode (language: 'hi' is set on the sandbox before the call): speech recognition runs in Hindi,
+  // so the same Hindi audio reaches Vigil in Devanagari; Vigil answers in Hinglish and the Hindi yes works.
+  V14_hindi_mode: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 85, language: 'hi' },
   // A judge's cross-questions, typed into a live call: evidence, plan B, risk and undo, plain words,
   // questions about Vigil itself, and an off-topic one. None of them may change production.
   V10_whatif: {
@@ -117,6 +120,16 @@ const CHECKS = {
       ['the Hindi "haan, flag band kar do" switched the flag off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
     ];
   },
+  V14_hindi_mode: (h) => {
+    const heard = h.transcript.filter((l) => l.who === 'engineer').map((l) => l.text).join(' | ');
+    const replies = h.transcript.filter((l) => l.who === 'agent').slice(1).map((l) => l.text).join(' ');
+    return [
+      [`Hindi speech reached Vigil in Devanagari: "${heard.slice(0, 90)}"`, /भाई|क्या|दिक्कत|हाँ|हां|फ्लैग/.test(heard)],
+      [`Vigil answered in Hinglish, in English letters: "${replies.slice(0, 110)}"`, /\b(hai|hoon|kar|rahi|nahi|aap|ki|ka|ko|mein)\b/i.test(replies) && !/[\u0900-\u097F]/.test(replies)],
+      // The flag change may run in stages (a canary first): any successful switch-off counts.
+      ['the Hindi "हाँ, फ्लैग बंद कर दो" switched the flag off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+    ];
+  },
   V11_reconnect: (h) => [
     ['the silent first agent was swapped for a fresh one', h.actions?.some((a) => a.title === 'Reconnecting Vigil’s voice') && h.actions?.some((a) => a.title === 'Vigil rejoined the call')],
     ['the swap did not count as a new call', h.callsUsed === 1],
@@ -153,6 +166,11 @@ async function runScenario(name) {
   if (!s) throw new Error(`unknown scenario ${name}`);
   const { id } = await post('/api/sandbox', { action: 'create', name: 'Priya' });
   await post('/api/sandbox', { id, action: 'trigger', scenario: s.incident });
+  // The engineer's call language (Hindi mode), set before the console loads and the call is answered.
+  if (s.language) {
+    const set = await post('/api/sandbox', { id, action: 'set_language', language: s.language });
+    if (!set.ok) throw new Error(`set_language ${s.language} failed: ${JSON.stringify(set)}`);
+  }
   const logStart = SERVER_LOG ? fs.statSync(SERVER_LOG).size : 0;
   const ctx = { timeline: [], done: {}, t: 0 };
   const browser = await puppeteer.launch({ executablePath: CHROME, headless: 'new', args: chromeArgs(s.audio) });
