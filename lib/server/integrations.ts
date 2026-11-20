@@ -9,11 +9,11 @@ export function githubEnabled(owner: boolean | undefined): boolean {
   return Boolean(process.env.GITHUB_TOKEN && process.env.GITHUB_ISSUES_REPO && (owner || process.env.GITHUB_ISSUES_PUBLIC === '1'));
 }
 
-export async function createGithubIssue(title: string, body: string): Promise<string | null> {
+export async function createGithubIssue(title: string, body: string, timeoutMs = 8000): Promise<string | null> {
   const repo = process.env.GITHUB_ISSUES_REPO!;
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return null;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(`https://api.github.com/repos/${repo}/issues`, {
       method: 'POST',

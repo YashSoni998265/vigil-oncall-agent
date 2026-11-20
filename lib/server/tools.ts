@@ -15,9 +15,11 @@ import {
 import type { RemediationAction, Sandbox, StatusPageState } from '@/lib/types';
 import { mutateSandbox, readSandbox } from './store';
 import { approvalNamesOtherAction, verifyApproval } from './approval';
-import { likelyCause, pushAction, pushChannel, type Effect } from './engine';
+import { likelyCause, pushAction, pushChannel, tick, type Effect } from './engine';
 import { searchRunbooks } from './runbooks';
 import { createGithubIssue, githubEnabled } from './integrations';
+import { CANARY_PERCENT, CANARY_WATCH_MS, changeId, changePlan } from './changes';
+import { diagnosis } from './diagnosis';
 import {
   defaultFollowUps,
   defaultRootCause,
@@ -70,8 +72,16 @@ function baseUrl(): string {
 const NO_INCIDENT = { incident: null, note: 'There is no open incident. Production is healthy.' };
 
 export async function runTool(name: string, sandboxId: string, args: Args): Promise<ToolOutcome> {
-  const sb = await readSandbox(sandboxId);
-  if (!sb) return { status: 404, body: { error: 'Unknown sandbox. Ask the engineer to reload the console.' }, effects: [] };
+  const stored = await readSandbox(sandboxId);
+  if (!stored) return { status: 404, body: { error: 'Unknown sandbox. Ask the engineer to reload the console.' }, effects: [] };
+  // Run anything that is due first (a canary to roll out, a recovery to confirm), so tools always see
+  // the current state even if no console is polling, and keep its effects (spoken announcements).
+  const { sandbox: sb, effects: due } = await tick(stored);
+  const out = await dispatch(name, sb, args);
+  return due.length ? { ...out, effects: [...due, ...out.effects] } : out;
+}
+
+async function dispatch(name: string, sb: Sandbox, args: Args): Promise<ToolOutcome> {
   switch (name) {
     case 'get_incident':
       return getIncident(sb);
@@ -131,7 +141,11 @@ async function getIncident(sb: Sandbox): Promise<ToolOutcome> {
     failed_orders_so_far: impact.failedOrders,
     revenue_at_risk: fmtINRShort(impact.inr),
     likely_cause: likelyCause(inc.scenario),
+    root_cause_trace: { path: diagnosis(inc.scenario).path.join(' -> '), root_cause: diagnosis(inc.scenario).rootCause, ruled_out: diagnosis(inc.scenario).ruledOut },
+    fixes_checked_before_recommending: diagnosis(inc.scenario).preflight,
     recommended_fix: inc.recommended ?? def.recommended,
+    ...(inc.canaryAt && !inc.mitigatedAt ? { change_in_progress: `Live for ${CANARY_PERCENT}% of traffic (canary); the canary check finishes about ${Math.max(0, Math.round((Date.parse(inc.canaryAt) + CANARY_WATCH_MS - t) / 1000))} seconds from now.` } : {}),
+    change_records: (inc.changes ?? []).map((c) => `${c.id}: ${c.summary}, ${c.status}${c.canaryResult ? ` (${c.canaryResult})` : ''}`),
     ...(inc.learnedFrom
       ? { same_as_past_incident: { id: inc.learnedFrom.id, what_fixed_it: inc.learnedFrom.fix, what_did_not_work: inc.learnedFrom.blocked } }
       : {}),
@@ -238,7 +252,8 @@ async function checkDependencies(sb: Sandbox): Promise<ToolOutcome> {
   const deps = dependencies(sb.incident, Date.now());
   const bad = deps.filter((d) => d.status !== 'operational');
   await record(sb, { tool: 'check_dependencies', kind: 'read', title: bad.length ? `Dependencies: ${bad.map((d) => d.name.split(' ')[0]).join(', ')} degraded` : 'Dependencies: all operational' });
-  return ok({ dependencies: deps });
+  const dx = sb.incident ? diagnosis(sb.incident.scenario) : null;
+  return ok({ dependencies: deps, ...(dx ? { traced_path: dx.path.join(' -> '), root_cause: dx.rootCause, ruled_out: dx.ruledOut } : {}) });
 }
 
 async function verifyRecovery(sb: Sandbox): Promise<ToolOutcome> {
@@ -256,7 +271,12 @@ async function verifyRecovery(sb: Sandbox): Promise<ToolOutcome> {
     recovered,
     ...(inc.mitigatedAt
       ? { seconds_since_fix: Math.round((t - Date.parse(inc.mitigatedAt)) / 1000) }
-      : { note: 'No effective fix has been applied yet.' }),
+      : inc.canaryAt
+        ? {
+            stage: 'canary',
+            note: `A change is live for ${CANARY_PERCENT}% of traffic. The canary check finishes about ${Math.max(0, Math.round((Date.parse(inc.canaryAt) + CANARY_WATCH_MS - t) / 1000))} seconds from now, and you will announce the result.`,
+          }
+        : { note: 'No effective fix has been applied yet.' }),
     ...(!recovered && inc.mitigatedAt ? { trend: 'recovering', hint: 'Check again in about 15 seconds before saying it is fixed.' } : {}),
   };
   await mutateSandbox(sb.id, (d) => {
@@ -331,36 +351,84 @@ async function executeRemediation(sb: Sandbox, action: RemediationAction, rawTar
   const done = inc.remediations.find((r) => r.action === action && r.target === target && r.outcome === 'success');
   if (done) return ok({ executed: false, already_done: true, at: fmtClock(done.at), result: done.note });
 
-  // 3. Apply, record and report.
+  // 3. Apply with a change record. A change that can split traffic goes to a canary first; the
+  //    engine checks the canary, then rolls it out to everyone or reverts it (see engine.ts).
   const result = evaluateRemediation(inc.scenario, action, target);
+  const plan = changePlan(inc.scenario, action, target);
+  const staged = result.outcome === 'success' && plan.staged && !inc.mitigatedAt && !inc.canaryAt;
   const t = Date.now();
-  await mutateSandbox(sb.id, (d) => {
+  const at = new Date(t).toISOString();
+  const chg = await mutateSandbox(sb.id, (d) => {
     const di = d.incident!;
     const line = d.transcript.find((l) => l.at === matched.at && l.text === matched.text);
     if (line) line.usedFor = `${action}:${target}`;
-    di.remediations.push({ action, target, at: new Date(t).toISOString(), outcome: result.outcome, effective: result.effective, note: result.note });
-    if (result.effective && !di.mitigatedAt) {
-      di.mitigatedAt = new Date(t).toISOString();
+    const id = changeId(di.id, di.changes?.length ?? 0);
+    (di.changes ??= []).push({
+      id,
+      action,
+      target,
+      summary: plan.summary,
+      blastRadius: plan.blastRadius,
+      risk: plan.risk,
+      undo: plan.undo,
+      verify: plan.verify,
+      approvedBy: d.engineer,
+      approval: matched.text,
+      stages: staged ? [`${CANARY_PERCENT}% canary`, '100%'] : ['100%'],
+      status: result.outcome === 'success' ? (staged ? 'canary' : 'applied') : result.outcome,
+      at,
+    });
+    di.remediations.push({
+      action,
+      target,
+      at,
+      outcome: result.outcome,
+      effective: result.effective,
+      note: staged ? `${result.note} Live for ${CANARY_PERCENT}% of traffic first (canary).` : result.note,
+    });
+    if (staged) {
+      di.canaryAt = at;
+      di.status = 'mitigating';
+    } else if (result.effective && !di.mitigatedAt) {
+      di.mitigatedAt = at;
       di.status = 'mitigating';
     }
     const kind = result.outcome === 'success' ? 'change' : result.outcome === 'failed' ? 'failed' : 'blocked';
     const verb = result.outcome === 'success' ? 'Done' : result.outcome === 'failed' ? 'Failed' : 'Refused';
-    pushAction(d, { tool: 'execute_remediation', kind, title: `${verb}: ${what}`, detail: result.note, approval: matched.text });
+    pushAction(d, {
+      tool: 'execute_remediation',
+      kind,
+      title: staged ? `${id}: ${what}, ${CANARY_PERCENT}% canary first` : `${verb}: ${what}`,
+      detail: staged
+        ? `${plan.summary}. Blast radius: ${plan.blastRadius}. Risk: ${plan.risk}. Undo: ${plan.undo}. Checked by: ${plan.verify}.`
+        : `${id} · ${result.note}`,
+      approval: matched.text,
+    });
     pushChannel(
       d,
       'Vigil',
       'vigil',
-      result.outcome === 'success'
-        ? `${result.effective ? 'Fix applied' : 'Applied'}: ${what} (approved by ${d.engineer}: "${matched.text.slice(0, 60)}"). ${result.note}`
-        : `${verb}: ${what}. ${result.note}${result.next ? ` Next option: ${result.next}` : ''}`,
+      staged
+        ? `${id} started: ${what} for ${CANARY_PERCENT}% of traffic (approved by ${d.engineer}: "${matched.text.slice(0, 60)}"). Checking the canary for ${CANARY_WATCH_MS / 1000} s before rolling out to everyone.`
+        : result.outcome === 'success'
+          ? `${result.effective ? 'Fix applied' : 'Applied'}: ${what} (${id}, approved by ${d.engineer}: "${matched.text.slice(0, 60)}"). ${result.note}`
+          : `${verb}: ${what} (${id}). ${result.note}${result.next ? ` Next option: ${result.next}` : ''}`,
     );
+    return id;
   });
   return ok({
     executed: result.outcome === 'success',
     outcome: result.outcome,
-    result: result.note,
+    change_id: chg,
+    ...(staged
+      ? {
+          stage: 'canary',
+          result: `${plan.summary}: live for ${CANARY_PERCENT} percent of traffic as a canary.`,
+          next: `Tell ${sb.engineer} in one or two sentences that it is live for ${CANARY_PERCENT} percent of traffic and you are watching the canary for about ${CANARY_WATCH_MS / 1000} seconds: it rolls out to everyone automatically if healthy, or reverts. Do not say it is fixed and do not call verify_recovery yet; you will announce the canary result.`,
+        }
+      : { result: result.note }),
     ...(result.next ? { next_safest_option: result.next } : {}),
-    ...(result.effective ? { expected: 'Metrics should recover within about 30 seconds. Call verify_recovery before saying it worked.' } : {}),
+    ...(!staged && result.effective ? { expected: 'Metrics should recover within about 30 seconds. Call verify_recovery before saying it worked.' } : {}),
   });
 }
 
@@ -426,8 +494,11 @@ async function createFollowUp(sb: Sandbox, title: string, rawOwner: string, rawP
     pushAction(d, { tool: 'create_follow_up', kind: 'comms', title: `Ticket ${k}: ${title}`, detail: `${owner} · ${priority}` });
     return k;
   });
-  const effects = githubEnabled(sb.owner) ? [issueEffect(sb, key, title, owner, priority)] : [];
-  return ok({ created: true, key, owner, priority, ...(effects.length ? { github: 'A real GitHub issue is being opened for this ticket.' } : {}) }, effects);
+  const filed = await fileIssues(sb, [{ key, title, owner, priority }]);
+  return ok(
+    { created: true, key, owner, priority, ...(filed.urls[key] ? { github_issue: issueLabel(filed.urls[key]), github_url: filed.urls[key] } : {}) },
+    filed.effects,
+  );
 }
 
 async function resolveIncident(sb: Sandbox, rootCause: string, summary: string): Promise<ToolOutcome> {
@@ -439,60 +510,119 @@ async function resolveIncident(sb: Sandbox, rootCause: string, summary: string):
   if (!isRecovered(inc, t)) return ok({ resolved: false, reason: 'Metrics are still recovering. Call verify_recovery and resolve once they are back at baseline.' });
   const def = SCENARIOS[inc.scenario];
   const impact = impactAt(def, inc, t);
-  const tickets = await mutateSandbox(sb.id, (d) => {
+  const duration = fmtDuration(t - Date.parse(inc.faultAt));
+  // Close out in the order a real incident process uses, one visible step at a time.
+  await mutateSandbox(sb.id, (d) => {
     const di = d.incident!;
     di.status = 'resolved';
     di.resolvedAt = new Date(t).toISOString();
     di.recoveredAt = di.recoveredAt ?? new Date(t).toISOString();
     di.rootCause = rootCause || defaultRootCause(di.scenario);
     di.summary = summary || null;
+    pushAction(d, { tool: 'resolve_incident', kind: 'comms', title: `1. Resolved ${di.id} after ${duration}`, detail: `${fmtInt(impact.failedOrders)} failed orders · ${fmtINRShort(impact.inr)} at risk` });
     if (!di.statusUpdates.some((u) => u.status === 'resolved')) {
       di.statusUpdates.push({ at: new Date(t).toISOString(), status: 'resolved', text: 'This incident has been resolved. Thank you for your patience.' });
     }
+    pushAction(d, { tool: 'update_status_page', kind: 'comms', title: '2. Status page: resolved', detail: 'Customers see the incident closed.' });
+    pushAction(d, { tool: 'postmortem', kind: 'comms', title: '3. Postmortem drafted', detail: 'Blameless: summary, root cause, timeline, changes and approvals, what went well, what we will improve, action items.' });
     if (di.followUps.length === 0) {
       defaultFollowUps(di.scenario).forEach((f, i) => {
         di.followUps.push({ key: `${ticketPrefix(f.owner)}-${311 + i}`, ...f, createdAt: new Date(t).toISOString() });
       });
     }
+    pushAction(d, {
+      tool: 'create_follow_up',
+      kind: 'comms',
+      title: `4. Filed ${di.followUps.length} action items from the postmortem as tickets`,
+      detail: di.followUps.map((f) => `${f.key} ${f.title} (${f.owner}, ${f.priority})`).join(' · '),
+    });
+    pushAction(d, { tool: 'review', kind: 'comms', title: '5. Postmortem review booked for 9:30 AM tomorrow', detail: 'With the service owner and the secondary on-call.' });
     rememberIncident(d, t, impact.failedOrders, fmtINRShort(impact.inr));
-    pushAction(d, { tool: 'resolve_incident', kind: 'comms', title: `Resolved ${di.id}; postmortem drafted`, detail: `${fmtDuration(t - Date.parse(di.faultAt))} · ${fmtInt(impact.failedOrders)} failed orders · ${fmtINRShort(impact.inr)}` });
-    pushChannel(d, 'Vigil', 'vigil', `${di.id} resolved after ${fmtDuration(t - Date.parse(di.faultAt))}. Postmortem draft: ${baseUrl()}/postmortem?s=${d.id} · Review booked for 9:30 AM.`);
-    return di.followUps.map((f) => `${f.key} ${f.title} (${f.owner})`);
+    pushChannel(d, 'Vigil', 'vigil', `${di.id} resolved after ${duration}. Status page: resolved. Postmortem draft: ${baseUrl()}/postmortem?s=${d.id} · ${di.followUps.length} action items filed as tickets · Review booked for 9:30 AM.`);
   });
+  // Real GitHub issues for the action items, opened during the call so Vigil can say the numbers.
   const fresh = await readSandbox(sb.id);
-  const effects = githubEnabled(sb.owner)
-    ? (fresh?.incident?.followUps ?? []).filter((f) => !f.url).map((f) => issueEffect(sb, f.key, f.title, f.owner, f.priority))
-    : [];
-  return ok({
-    resolved: true,
-    duration: fmtDuration(t - Date.parse(inc.faultAt)),
-    failed_orders: impact.failedOrders,
-    revenue_impact: fmtINRShort(impact.inr),
-    follow_ups: tickets,
-    postmortem_url: `${baseUrl()}/postmortem?s=${sb.id}`,
-    review: 'Postmortem review booked for 9:30 AM tomorrow.',
-  }, effects);
+  const items = (fresh?.incident?.followUps ?? []).filter((f) => !f.url);
+  const filed = await fileIssues(sb, items);
+  const tickets = (fresh?.incident?.followUps ?? []).map(
+    (f) => `${f.key} ${f.title} (${f.owner}, ${f.priority})${filed.urls[f.key] ? `, ${issueLabel(filed.urls[f.key])}` : ''}`,
+  );
+  return ok(
+    {
+      resolved: true,
+      done_in_order: ['incident resolved', 'status page marked resolved', 'postmortem drafted', `${tickets.length} action items filed as tickets`, 'postmortem review booked for 9:30 AM tomorrow'],
+      duration,
+      failed_orders: impact.failedOrders,
+      revenue_impact: fmtINRShort(impact.inr),
+      follow_ups: tickets,
+      ...(Object.keys(filed.urls).length ? { github: `Opened ${Object.keys(filed.urls).length} real GitHub issues in ${process.env.GITHUB_ISSUES_REPO}.` } : {}),
+      postmortem_url: `${baseUrl()}/postmortem?s=${sb.id}`,
+    },
+    filed.effects,
+  );
 }
 
-/** Opens a real GitHub issue for a follow-up and links it back into the sandbox. */
+/** "GitHub issue 12" from an issue URL, for Vigil to say. */
+function issueLabel(url: string): string {
+  const n = /\/issues\/(\d+)/.exec(url)?.[1];
+  return n ? `GitHub issue ${n}` : 'a GitHub issue';
+}
+
+/**
+ * Opens real GitHub issues for follow-ups while the tool call is still running (in parallel, with a
+ * deadline inside Agora's 10-second tool timeout), so Vigil can name them on the call. Anything not
+ * done in time is retried once in the background. Off unless GitHub is configured (integrations.ts).
+ */
+async function fileIssues(
+  sb: Sandbox,
+  items: { key: string; title: string; owner: string; priority: string }[],
+): Promise<{ urls: Record<string, string>; effects: Effect[] }> {
+  if (!githubEnabled(sb.owner) || items.length === 0) return { urls: {}, effects: [] };
+  const fresh = (await readSandbox(sb.id)) ?? sb;
+  const results = await Promise.all(items.map(async (f) => [f, await createGithubIssue(`[${f.key}] ${f.title}`, issueBody(fresh, f), 5000)] as const));
+  const urls: Record<string, string> = {};
+  for (const [f, url] of results) if (url) urls[f.key] = url;
+  if (Object.keys(urls).length) {
+    await mutateSandbox(sb.id, (d) => {
+      for (const [key, url] of Object.entries(urls)) {
+        const f = d.incident?.followUps.find((x) => x.key === key);
+        if (f) f.url = url;
+        pushAction(d, { tool: 'github', kind: 'comms', title: `Opened ${issueLabel(url)} for ${key}`, detail: url });
+      }
+    });
+  }
+  const effects = results.filter(([, url]) => !url).map(([f]) => issueEffect(sb, f.key, f.title, f.owner, f.priority));
+  return { urls, effects };
+}
+
+function issueBody(sb: Sandbox, f: { key: string; title: string; owner: string; priority: string }): string {
+  const inc = sb.incident;
+  const dx = inc ? diagnosis(inc.scenario) : null;
+  const changes = (inc?.changes ?? []).filter((c) => c.status !== 'refused' && c.status !== 'failed');
+  return [
+    `Follow-up from **${inc?.id ?? 'an incident'}**: ${inc?.title ?? ''}`,
+    '',
+    `- **Owner:** ${f.owner}`,
+    `- **Priority:** ${f.priority}`,
+    ...(dx ? [`- **Root cause:** ${dx.rootCause}`, `- **Traced:** ${dx.path.join(' → ')}`] : []),
+    ...changes.map((c) => `- **Change ${c.id}:** ${c.summary} (${c.stages.join(' → ')}), approved by ${c.approvedBy}: "${c.approval.slice(0, 80)}"${c.canaryResult ? `; ${c.canaryResult}` : ''}`),
+    `- **Postmortem:** ${baseUrl()}/postmortem?s=${sb.id}`,
+    '',
+    '_Filed by Vigil, the AI on-call engineer, from the postmortem action items during a demo incident. Thali is a fictional company; the incident ran in a sandbox._',
+  ].join('\n');
+}
+
+/** Background retry: opens a real GitHub issue for a follow-up and links it back into the sandbox. */
 function issueEffect(sb: Sandbox, key: string, title: string, owner: string, priority: string): Effect {
   return async () => {
-    const inc = sb.incident;
-    const body = [
-      `Follow-up from **${inc?.id ?? 'an incident'}**: ${inc?.title ?? ''}`,
-      '',
-      `- Priority: ${priority}`,
-      `- Owner: ${owner}`,
-      `- Postmortem: ${baseUrl()}/postmortem?s=${sb.id}`,
-      '',
-      '_Opened by Vigil, the AI on-call engineer, during a demo incident in a sandbox of Thali (a fictional company)._',
-    ].join('\n');
-    const url = await createGithubIssue(`[${key}] ${title}`, body);
+    const fresh = (await readSandbox(sb.id)) ?? sb;
+    if (fresh.incident?.followUps.find((x) => x.key === key)?.url) return;
+    const url = await createGithubIssue(`[${key}] ${title}`, issueBody(fresh, { key, title, owner, priority }));
     if (!url) return;
     await mutateSandbox(sb.id, (d) => {
       const f = d.incident?.followUps.find((x) => x.key === key);
       if (f) f.url = url;
-      pushAction(d, { tool: 'github', kind: 'comms', title: `Opened GitHub issue for ${key}`, detail: url });
+      pushAction(d, { tool: 'github', kind: 'comms', title: `Opened ${issueLabel(url)} for ${key}`, detail: url });
     });
   };
 }

@@ -119,12 +119,12 @@ test('memory: a repeat of a resolved incident starts from the fix that worked', 
   assert.match(text, /Recommended first fix: Switch off the new-coupon-engine feature flag\. It fixed INC-2481 earlier\./);
 
   const greeting = buildGreeting(sb, now);
-  assert.match(greeting, /same failure as incident 2481 earlier: the rollback was blocked by migration 0087, and switching off the new-coupon-engine flag fixed it/);
-  assert.match(greeting, /I recommend we switch off the new-coupon-engine feature flag right away\. Shall I\?/);
+  assert.match(greeting, /same failure as incident 2481 earlier: switching off the new-coupon-engine flag fixed it, and a rollback is still unsafe because of migration 0087/);
+  assert.match(greeting, /I recommend we switch off the new-coupon-engine feature flag again, 10 percent of traffic first\. Shall I start\?/);
 });
 
 test('greeting: a first incident still recommends the runbook fix', () => {
   const greeting = buildGreeting(sandbox(incident('bad_deploy')), now);
-  assert.match(greeting, /I recommend rolling back to 4\.2\.0\. Shall I go ahead\?/);
+  assert.match(greeting, /A rollback would break checkout because of a database migration, so I recommend switching off the coupon engine's feature flag, for 10 percent of traffic first\. Shall I start\?/);
   assert.doesNotMatch(greeting, /earlier/);
 });

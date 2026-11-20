@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Check, Pencil, RotateCcw, WifiOff, Zap } from 'lucide-react';
-import { IDLE_METRICS, SCENARIOS, fmtClock, fmtDuration } from '@/lib/sim';
+import { CANARY_PERCENT, IDLE_METRICS, SCENARIOS, fmtClock, fmtDuration } from '@/lib/sim';
 import type { Incident, Sandbox, ScenarioId } from '@/lib/types';
 import { postJSON, useNow, useSandbox, useSandboxId } from '@/lib/use-sandbox';
 import Logo from '@/components/brand/Logo';
@@ -152,13 +152,23 @@ function markersFor(inc: Incident | null, _metricId: string) {
   for (const r of inc.remediations) {
     if (r.outcome === 'failed') marks.push({ t: Date.parse(r.at), label: `${r.action.split('_')[0]} blocked`, tone: 'neutral' });
   }
-  if (inc.mitigatedAt) marks.push({ t: Date.parse(inc.mitigatedAt), label: 'fix', tone: 'good' });
+  if (inc.canaryAt) marks.push({ t: Date.parse(inc.canaryAt), label: `${CANARY_PERCENT}% canary`, tone: 'neutral' });
+  if (inc.mitigatedAt) marks.push({ t: Date.parse(inc.mitigatedAt), label: inc.canaryAt ? '100%' : 'fix', tone: 'good' });
   return marks;
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
   return <div className="min-h-dvh bg-canvas text-ink">{children}</div>;
 }
+
+const CHANGE_STATUS: Record<NonNullable<Incident['changes']>[number]['status'], string> = {
+  canary: `live for ${CANARY_PERCENT}% (canary), checking`,
+  rolled_out: 'canary healthy, rolled out to 100%',
+  applied: 'applied',
+  reverted: 'no improvement, reverted automatically',
+  refused: 'refused by the server',
+  failed: 'blocked by the deploy guard',
+};
 
 const STATUS_LABEL: Record<Incident['status'], string> = {
   investigating: 'Investigating',
@@ -311,6 +321,12 @@ function IncidentHeader({ incident, sandbox, now, onBreakAnother }: { incident: 
           Recommended by Vigil: <span className="font-medium text-ink">{incident.recommended ?? def.recommended}</span>
           {incident.learnedFrom ? <span className="ml-1.5 text-good">· worked in {incident.learnedFrom.id}</span> : null}
         </p>
+        {incident.changes?.length ? (
+          <p className="text-dim" data-testid="change-record">
+            Change <span className="font-mono text-ink">{incident.changes[incident.changes.length - 1].id}</span>:{' '}
+            <span className="font-medium text-ink">{CHANGE_STATUS[incident.changes[incident.changes.length - 1].status]}</span>
+          </p>
+        ) : null}
         <button onClick={onBreakAnother} className="text-[13px] font-medium text-dim underline-offset-4 hover:text-ink hover:underline">
           Break something else
         </button>

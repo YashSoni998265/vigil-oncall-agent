@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { diagnosis } from '@/lib/server/diagnosis';
 import Link from 'next/link';
 import {
   Activity,
@@ -94,13 +95,22 @@ const HEALTH_STYLE: Record<Health, string> = {
 const HEALTH_DOT: Record<Health, string> = { healthy: 'bg-good', degraded: 'bg-warn', down: 'bg-bad animate-soft-pulse' };
 
 export function ServiceMap({ incident, now }: { incident: Incident | null; now: number }) {
+  // Where the failure starts, traced down the dependency chain before the call.
+  const dx = incident && incident.status !== 'resolved' ? diagnosis(incident.scenario) : null;
   const node = (id: string) => {
     const svc = SERVICES.find((s) => s.id === id)!;
     const h = serviceHealth(incident, id, now);
+    const root = dx?.rootNode === id && h !== 'healthy';
     return (
-      <div key={id} className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 font-mono text-[12px] transition-colors ${HEALTH_STYLE[h]}`} title={`${svc.label}: ${h}`}>
+      <div
+        key={id}
+        className={`flex min-w-0 items-center gap-2 rounded-xl border px-3 py-2 font-mono text-[12px] transition-colors ${HEALTH_STYLE[h]} ${root ? 'ring-2 ring-bad/60' : ''}`}
+        title={`${svc.label}: ${h}${root ? ' (root cause)' : ''}`}
+        data-testid={root ? 'root-cause-node' : undefined}
+      >
         <span className={`h-2 w-2 shrink-0 rounded-full ${HEALTH_DOT[h]}`} aria-hidden />
         <span className="truncate">{svc.label}</span>
+        {root && <span className="ml-auto shrink-0 rounded-md bg-bad/15 px-1.5 py-0.5 font-sans text-[10px] font-semibold uppercase tracking-wide text-bad">root cause</span>}
         <span className="sr-only">{h}</span>
       </div>
     );
@@ -131,6 +141,11 @@ export function ServiceMap({ incident, now }: { incident: Incident | null; now: 
         {node('paynova')}
         {node('cashly')}
       </div>
+      {dx && (
+        <p className="mt-3 text-[11.5px] leading-relaxed text-dim" data-testid="traced-path">
+          Traced: <span className="font-mono text-ink">{dx.path.join(' → ')}</span> · ruled out {dx.ruledOut.length} other suspects
+        </p>
+      )}
     </section>
   );
 }

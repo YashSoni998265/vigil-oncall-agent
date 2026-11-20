@@ -91,7 +91,7 @@ export const SCENARIOS: Record<ScenarioId, ScenarioDef> = {
   bad_deploy: {
     id: 'bad_deploy',
     name: 'Bad deploy breaks checkout',
-    tagline: 'A release breaks checkout for 1 in 5 orders. The obvious fix is blocked.',
+    tagline: 'A release breaks checkout for 1 in 5 orders. The obvious fix would make it worse.',
     difficulty: 'Hero scenario',
     severity: 'SEV-1',
     title: 'Checkout errors at 18% after payments-service 4.2.1',
@@ -108,8 +108,8 @@ export const SCENARIOS: Record<ScenarioId, ScenarioDef> = {
     fixes: [{ action: 'disable_feature_flag', targets: ['new-coupon-engine'] }],
     marker: { label: 'deploy 4.2.1', offsetMs: -60_000 },
     owner: 'owner',
-    recommended: 'Roll back payments-service to 4.2.0',
-    hints: ['"Yes, roll it back."', '"Why did it fail?"', '"Okay, turn the flag off."', '"Is it fixed?"', '"Update the status page."', '"Add Arjun to the call."', '"Resolve it and write the postmortem."'],
+    recommended: 'Switch off the new-coupon-engine feature flag',
+    hints: ['"Yes, start."', '"Why not just roll back?"', '"What did you rule out?"', '"Is it fixed?"', '"Update the status page."', '"Add Arjun to the call."', '"Resolve it and file the tickets."'],
   },
   upi_provider: {
     id: 'upi_provider',
@@ -132,7 +132,7 @@ export const SCENARIOS: Record<ScenarioId, ScenarioDef> = {
     marker: { label: 'PayNova timeouts', offsetMs: 0 },
     owner: 'owner',
     recommended: 'Fail UPI traffic over to Cashly',
-    hints: ['"Yes, fail over to Cashly."', '"Did we ship anything?"', '"Tell customers on the status page."', '"Is it fixed?"', '"Resolve it."'],
+    hints: ['"Yes, fail over to Cashly."', '"Did we ship anything?"', '"What did you rule out?"', '"Is it fixed?"', '"Tell customers on the status page."', '"Resolve it and file the tickets."'],
   },
   db_overload: {
     id: 'db_overload',
@@ -158,7 +158,7 @@ export const SCENARIOS: Record<ScenarioId, ScenarioDef> = {
     marker: { label: 'report job started', offsetMs: -60_000 },
     owner: 'data',
     recommended: 'Pause the merchant-weekly-report job',
-    hints: ['"Yes, pause it."', '"Should we restart the database?"', '"What does the support ticket say?"', '"Is it fixed?"', '"Resolve it."'],
+    hints: ['"Yes, pause it."', '"Should we restart the database?"', '"What does the support ticket say?"', '"Is it fixed?"', '"Resolve it and file the tickets."'],
   },
 };
 
@@ -170,21 +170,31 @@ export const IDLE_METRICS: MetricDef[] = [checkoutErrors, paymentSuccess, dbCpu]
 // ---------------------------------------------------------------------------
 // Time model
 
-type IncidentTimes = Pick<Incident, 'faultAt' | 'mitigatedAt'> | null | undefined;
+type IncidentTimes = Pick<Incident, 'faultAt' | 'mitigatedAt' | 'canaryAt'> | null | undefined;
 
 const RAMP_MS = 12_000;
 const RECOVER_MS = 9_000;
+/** A staged change goes to this share of traffic first (the canary). */
+export const CANARY_PERCENT = 10;
+const CANARY_RAMP_MS = 2_500;
 
-/** 0 = healthy, 1 = full incident. Ramps up from the fault, decays after an effective fix. */
+/** Share of failures a canary removes at time t: its slice of traffic recovers, the rest does not. */
+function canaryCut(inc: NonNullable<IncidentTimes>, t: number): number {
+  const c = inc.canaryAt ? Date.parse(inc.canaryAt) : NaN;
+  if (!Number.isFinite(c) || t < c) return 0;
+  return (CANARY_PERCENT / 100) * (1 - Math.exp(-(t - c) / CANARY_RAMP_MS));
+}
+
+/** 0 = healthy, 1 = full incident. Ramps up from the fault, dips for a canary, decays after an effective fix. */
 export function incidentFactor(inc: IncidentTimes, t: number): number {
   if (!inc) return 0;
   const fault = Date.parse(inc.faultAt);
   if (!Number.isFinite(fault) || t < fault) return 0;
-  const up = 1 - Math.exp(-(t - fault) / RAMP_MS);
+  const up = (1 - Math.exp(-(t - fault) / RAMP_MS)) * (1 - canaryCut(inc, t));
   if (!inc.mitigatedAt) return up;
   const m = Date.parse(inc.mitigatedAt);
   if (t < m) return up;
-  const upAtFix = 1 - Math.exp(-(m - fault) / RAMP_MS);
+  const upAtFix = (1 - Math.exp(-(m - fault) / RAMP_MS)) * (1 - canaryCut(inc, m));
   return upAtFix * Math.exp(-(t - m) / RECOVER_MS);
 }
 

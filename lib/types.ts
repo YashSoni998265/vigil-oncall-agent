@@ -82,6 +82,29 @@ export interface Incident {
   recommended?: string;
   /** A past incident in this sandbox with the same failure, matched before the call. */
   learnedFrom?: { id: string; fix: string; blocked: string | null } | null;
+  /** A staged change went live for a canary share of traffic at this moment (see lib/server/changes.ts). */
+  canaryAt?: string | null;
+  /** One change record per production change Vigil ran, in order. */
+  changes?: ChangeRecord[];
+}
+
+/** A production change: what, how big, how risky, how to undo it, how it is checked, who approved it. */
+export interface ChangeRecord {
+  id: string;
+  action: RemediationAction;
+  target: string;
+  summary: string;
+  blastRadius: string;
+  risk: string;
+  undo: string;
+  verify: string;
+  approvedBy: string;
+  approval: string;
+  stages: string[];
+  status: 'canary' | 'rolled_out' | 'applied' | 'reverted' | 'refused' | 'failed';
+  at: string;
+  canaryResult?: string | null;
+  completedAt?: string | null;
 }
 
 /** What Vigil remembers about a resolved incident, for the next time it happens. */

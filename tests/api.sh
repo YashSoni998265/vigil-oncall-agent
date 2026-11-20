@@ -84,8 +84,8 @@ r=$(tool "$A" resolve_incident '{"root_cause":"x","summary":"y"}')
 check "A-30 cannot resolve before recovery is verified" '[[ "$r" == *"\"resolved\":false"* ]]' "$r"
 
 echo "== Recovery, then resolve (waits for live metrics, up to ~45 s)"
-for i in $(seq 1 15); do r=$(get "$A" verify_recovery); [[ "$r" == *'"recovered":true'* ]] && break; sleep 3; done
-check "A-51 recovery verified from live metrics about 30 s after the fix" '[[ "$r" == *"\"recovered\":true"* ]]' "$r"
+for i in $(seq 1 25); do r=$(get "$A" verify_recovery); [[ "$r" == *'"recovered":true'* ]] && break; sleep 3; done
+check "A-51 canary rolled out, then recovery verified from live metrics" '[[ "$r" == *"\"recovered\":true"* ]]' "$r"
 echo "== Comms and follow-up"
 r=$(tool "$A" update_status_page '{"status":"panic","message":"x"}')
 check "A-31 status page rejects unknown states" '[[ "$r" == *"status must be"* ]]' "$r"

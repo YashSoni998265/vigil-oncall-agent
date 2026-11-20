@@ -18,7 +18,9 @@ import { createSandboxRecord, incrementDailyCalls, mutateSandbox, readDailyCalls
 import { recentChanges, logSignatures } from './world';
 import { searchRunbooks } from './runbooks';
 import { agentSpeak, agentThink, stopAgent } from './agora';
-import { recoveryAnnouncement } from './announce';
+import { canaryAnnouncement, recoveryAnnouncement } from './announce';
+import { CANARY_PERCENT, CANARY_WATCH_MS, changePlan } from './changes';
+import { diagnosis, preflightSummary } from './diagnosis';
 
 export type Effect = () => Promise<void>;
 
@@ -134,6 +136,7 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
     (c?.status === 'active' && c.lastSeenAt && now - Date.parse(c.lastSeenAt) > STALE_CALL_MS) ||
     (c?.status === 'active' && c.startedAt && now - Date.parse(c.startedAt) > ((c.maxSeconds ?? MAX_CALL_SECONDS) + 20) * 1000) ||
     (inc && inc.mitigatedAt && !inc.recoveredAt && isRecovered(inc, now)) ||
+    (inc && inc.canaryAt && !inc.mitigatedAt && inc.status !== 'resolved' && now - Date.parse(inc.canaryAt) >= CANARY_WATCH_MS) ||
     (c?.status === 'active' && c.teammateJoinedAt && !c.teammateAnnounced && c.agentId);
   if (!needs) return { sandbox: sb, effects: [] };
 
@@ -167,6 +170,43 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
     }
     if (call?.status === 'active' && call.startedAt && t - Date.parse(call.startedAt) > ((call.maxSeconds ?? MAX_CALL_SECONDS) + 20) * 1000) {
       endCallDraft(d, 'time_limit', effects);
+    }
+    // A staged change: once its canary has run, roll it out to everyone or revert it, and say so.
+    if (incident && incident.canaryAt && !incident.mitigatedAt && incident.status !== 'resolved' && t - Date.parse(incident.canaryAt) >= CANARY_WATCH_MS) {
+      const change = [...(incident.changes ?? [])].reverse().find((c) => c.status === 'canary');
+      const rem = change
+        ? [...incident.remediations].reverse().find((r) => r.action === change.action && r.target === change.target && r.outcome === 'success')
+        : undefined;
+      const m = SCENARIOS[incident.scenario].metrics[0];
+      // Everyone outside the canary still sees the full incident; the canary shows what the fix does.
+      const rest = fmtMetric(m, metricValue(m, { faultAt: incident.faultAt, mitigatedAt: null }, t, d.id));
+      const healthy = Boolean(rem?.effective);
+      const canary = healthy ? fmtMetric(m, m.base + (m.higherIsBetter ? -0.3 : 0.2)) : rest;
+      const result = `${m.label} ${canary} in the ${CANARY_PERCENT}% canary vs ${rest} for everyone else`;
+      if (change) {
+        change.canaryResult = result;
+        change.completedAt = nowIso(t);
+        change.status = healthy ? 'rolled_out' : 'reverted';
+      }
+      if (healthy) {
+        incident.mitigatedAt = nowIso(t);
+        pushAction(d, { tool: 'monitor', kind: 'change', title: `${change?.id ?? 'Change'}: canary healthy, rolled out to 100%`, detail: `${result}.` });
+        pushChannel(d, 'Vigil', 'vigil', `${change?.id ?? 'Change'}: canary healthy (${result}). Rolled out to 100% of traffic.`);
+      } else {
+        incident.canaryAt = null;
+        if (rem) {
+          rem.outcome = 'failed';
+          rem.effective = false;
+          rem.note = `${rem.note} Reverted automatically: no improvement in the canary.`;
+        }
+        pushAction(d, { tool: 'monitor', kind: 'failed', title: `${change?.id ?? 'Change'}: no improvement in the canary, reverted automatically`, detail: `${result}.` });
+        pushChannel(d, 'Vigil', 'vigil', `${change?.id ?? 'Change'}: no improvement in the canary (${result}). Reverted automatically.`);
+      }
+      if (d.call?.status === 'active' && d.call.agentId && d.call.channel) {
+        const { agentId, channel } = d.call;
+        const sentence = canaryAnnouncement(d.engineer, m.label, canary, rest, healthy, CANARY_PERCENT);
+        effects.push(async () => agentSpeak(agentId, channel, sentence).catch(() => {}));
+      }
     }
     if (incident && incident.mitigatedAt && !incident.recoveredAt && isRecovered(incident, t)) {
       incident.recoveredAt = nowIso(t);
@@ -321,23 +361,43 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
         phase: 'before',
       });
     }
+    // Follow the failing requests down the dependency chain, and rule out the other suspects.
+    const dx = diagnosis(scenario);
+    pushAction(d, {
+      tool: 'check_dependencies',
+      kind: 'read',
+      title: `Traced it: ${dx.path.join(' → ')}`,
+      detail: `Ruled out: ${dx.ruledOut.join('; ')}.`,
+      at: step(21_000),
+      phase: 'before',
+    });
     const rb = searchRunbooks(scenario === 'bad_deploy' ? 'errors after deploy rollback' : scenario === 'upi_provider' ? 'upi payment provider failover' : 'database saturation job')[0];
     pushAction(d, { tool: 'search_runbooks', kind: 'read', title: `Runbook ${rb.id}: ${rb.title}`, detail: rb.steps[1], at: step(24_000), phase: 'before' });
+    // Check every candidate fix for safety before recommending one.
+    pushAction(d, {
+      tool: 'preflight',
+      kind: 'read',
+      title: `Checked each fix before recommending: ${preflightSummary(dx)}`,
+      detail: dx.preflight.map((f) => `${f.fix}: ${f.verdict}, ${f.why}.`).join(' '),
+      at: step(27_000),
+      phase: 'before',
+    });
     if (past) {
       pushAction(d, {
         tool: 'memory',
         kind: 'read',
         title: `Matched a past incident: ${past.id}, resolved at ${fmtClock(past.resolvedAt)}`,
         detail: `${past.blocked ? `${upperFirst(past.blocked)}. ` : ''}${upperFirst(past.fix)} fixed it.`,
-        at: step(27_000),
+        at: step(29_000),
         phase: 'before',
       });
     }
+    const staged = changePlan(scenario, def.fixes[0].action, def.fixes[0].targets[0]).staged;
     pushAction(d, {
       tool: 'diagnosis',
       kind: 'system',
-      title: `Diagnosis ready. Recommended: ${inc.recommended}${past ? ` (it fixed ${past.id})` : ''}.`,
-      detail: `Calling ${d.engineer} (primary on-call).`,
+      title: `Diagnosis ready (confidence ${dx.confidence}). Recommended: ${inc.recommended}${staged ? `, ${CANARY_PERCENT}% canary first` : ''}${past ? ` (it fixed ${past.id})` : ''}.`,
+      detail: `Root cause: ${dx.rootCause} Calling ${d.engineer} (primary on-call).`,
       at: step(31_000),
       phase: 'before',
     });
