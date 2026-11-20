@@ -62,26 +62,6 @@ export async function agentThink(agentId: string, channel: string, text: string)
   );
 }
 
-/**
- * Give the LLM context it will see on the engineer's next turn, without starting a reply now.
- * Used next to agentSpeak, so the LLM knows what Vigil just announced and a "yes" makes sense.
- */
-export async function agentInject(agentId: string, channel: string, text: string): Promise<void> {
-  const client = createAgoraClient();
-  await client.agentManagement.agentThink(
-    {
-      appid: agoraAppId(),
-      agentId,
-      text,
-      on_listening_action: 'inject',
-      on_thinking_action: 'ignore',
-      on_speaking_action: 'ignore',
-      interruptable: true,
-    },
-    convoAIAuth(channel),
-  );
-}
-
 /** Make the agent say an exact sentence (spoken by Murf like every other reply). */
 export async function agentSpeak(agentId: string, channel: string, text: string, interrupt = false): Promise<void> {
   const client = createAgoraClient();

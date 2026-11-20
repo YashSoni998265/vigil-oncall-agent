@@ -17,7 +17,7 @@ import type { ActionEntry, CaptionLine, ChannelMessage, Sandbox, SandboxView, Sc
 import { createSandboxRecord, incrementDailyCalls, mutateSandbox, readDailyCalls, readSandbox } from './store';
 import { recentChanges, logSignatures } from './world';
 import { searchRunbooks } from './runbooks';
-import { agentInject, agentSpeak, agentThink, stopAgent } from './agora';
+import { agentSpeak, agentThink, stopAgent } from './agora';
 import { recoveryAnnouncement } from './announce';
 
 export type Effect = () => Promise<void>;
@@ -185,15 +185,10 @@ export async function tick(sb: Sandbox): Promise<{ sandbox: Sandbox; effects: Ef
         const baseline = fmtMetric(m, m.base);
         // Vigil says this exact sentence (Agora speak API, queued after any reply in progress).
         // A "think" update that lands while Vigil is mid-turn can be queued and never spoken.
+        // The spoken sentence joins the agent's history, so a following "yes" still makes sense.
         const spoken = recoveryAnnouncement(d.engineer, m.label, value, baseline);
-        const update = `${SYSTEM_UPDATE_MARK} Live monitoring update (not from the engineer): ${m.label} has recovered to ${value}, near the ${baseline} baseline and well inside the ${fmtMetric(m, m.threshold)} alert threshold. The fix is confirmed by live metrics.`;
-        // The LLM learns what was said, silently, so a following "yes" makes sense.
-        const context = `${update} You have already told ${d.engineer} this out loud: "${spoken}" Do not repeat it. If ${d.engineer} says yes, update the status page and post in the incident channel.`;
-        const fallback = `${update} Tell ${d.engineer} in one short sentence, then offer to update the status page and post in the incident channel.`;
-        effects.push(async () => {
-          await agentInject(agentId, channel, context).catch(() => {});
-          await agentSpeak(agentId, channel, spoken).catch(() => agentThink(agentId, channel, fallback));
-        });
+        const fallback = `${SYSTEM_UPDATE_MARK} Live monitoring update (not from the engineer): ${m.label} has recovered to ${value}, near the ${baseline} baseline and well inside the ${fmtMetric(m, m.threshold)} alert threshold. The fix is confirmed by live metrics. Tell ${d.engineer} in one short sentence, then offer to update the status page and post in the incident channel.`;
+        effects.push(async () => agentSpeak(agentId, channel, spoken).catch(() => agentThink(agentId, channel, fallback)));
       }
     }
     if (call?.status === 'active' && call.teammateJoinedAt && !call.teammateAnnounced && call.agentId && call.channel) {
