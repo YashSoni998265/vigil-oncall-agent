@@ -15,6 +15,7 @@ import {
   restartVoice,
   runEffects,
   setEngineer,
+  setLanguage,
   teammateAsk,
   teammateJoined,
   triggerIncident,
@@ -65,6 +66,11 @@ export async function POST(request: NextRequest) {
     case 'set_name': {
       const ok = await setEngineer(id, String(body.name ?? ''));
       return NextResponse.json({ ok }, { status: ok ? 200 : 400 });
+    }
+    case 'set_language': {
+      // 'hi' (Hindi mode): the next call hears Hindi and Vigil answers in Hinglish. Anything but 'en' or 'hi' is a 400.
+      const ok = await setLanguage(id, typeof body.language === 'string' ? body.language : '');
+      return NextResponse.json(ok ? { ok } : { ok, error: "language must be 'en' or 'hi'" }, { status: ok ? 200 : 400 });
     }
     case 'decline':
       await declineCall(id);

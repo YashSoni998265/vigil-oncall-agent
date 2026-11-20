@@ -177,6 +177,11 @@ export interface Sandbox {
   owner?: boolean;
   /** Resolved incidents Vigil remembers (most recent last). Cleared by Reset. */
   history?: PastIncident[];
+  /**
+   * The engineer's call language, kept across incidents like their name. English when missing.
+   * 'hi': speech recognition hears Hindi (hi-IN) and Vigil answers in Hinglish.
+   */
+  language?: 'en' | 'hi';
 }
 
 /** What GET /api/sandbox returns. */

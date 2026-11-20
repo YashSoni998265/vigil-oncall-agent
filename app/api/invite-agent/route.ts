@@ -3,6 +3,7 @@ import { Agent, AresSTT, ExpiresIn, MurfTTS, OpenAI } from 'agora-agents';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
 import { SANDBOX_ID, readSandbox } from '@/lib/server/store';
 import { buildGreeting, buildInstructions } from '@/lib/server/prompt';
+import { buildGreetingHi, hindiModeInstructions } from '@/lib/server/greeting-hi';
 import { buildAgentTools, buildMcpServer } from '@/lib/server/agent-tools';
 import { createAgoraClient } from '@/lib/server/agora';
 import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
@@ -11,7 +12,7 @@ import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
 export const maxDuration = 30;
 
 // Starts Vigil in the engineer's channel:
-// Agora ARES speech recognition (en-IN) → GPT-4.1 mini (Agora-managed) with 13 tools
+// Agora ARES speech recognition (en-IN, or hi-IN in Hindi mode) → GPT-4.1 mini (Agora-managed) with 13 tools
 // → Murf Falcon 2.1 text-to-speech (voice "Anisha", en-IN). The agent takes instructions from
 // the on-call engineer; a paged teammate can join the same channel and hear the call.
 
@@ -27,7 +28,8 @@ const KEYWORDS = [
   'Vigil', 'Thali', 'rollback', 'roll back', 'feature flag', 'coupon', 'coupon engine', 'payments', 'checkout',
   'PayNova', 'Cashly', 'UPI', 'failover', 'fail over', 'orders database', 'merchant weekly report', 'status page',
   'postmortem', 'Arjun', 'Neha', 'Kabir', 'Sana', 'Priya', 'incident', 'runbook',
-  // Hinglish an engineer may use under stress; recognition stays English (India), one language a call.
+  // Hinglish an engineer may use under stress. Recognition runs one language a call: English (India),
+  // or Hindi when the engineer chose Hindi mode (then even English words arrive in Devanagari).
   'bhai', 'kya', 'dikkat', 'haan', 'theek hai', 'kar do', 'band kar do', 'nahi', 'mat karo', 'ruko', 'jaldi',
 ];
 
@@ -75,8 +77,11 @@ export async function POST(request: NextRequest) {
     const toolsMode = process.env.AGENT_TOOLS ?? 'rest';
     const viaMcp = toolsMode === 'mcp' || (toolsMode === 'mcp-owner' && owner);
 
-    const greeting = buildGreeting(sb, Date.now());
-    const instructions = buildInstructions(sb);
+    // Hindi mode (chosen in the console): Hindi speech recognition, a Hinglish greeting (English when
+    // there is no Hinglish one for this moment) and a Hinglish-first language rule. English is unchanged.
+    const hindi = sb.language === 'hi';
+    const greeting = (hindi ? buildGreetingHi(sb, Date.now()) : null) ?? buildGreeting(sb, Date.now());
+    const instructions = hindi ? `${buildInstructions(sb)}\n\n${hindiModeInstructions(sb.engineer)}` : buildInstructions(sb);
 
     const agent = new Agent({
       client: createAgoraClient(),
@@ -85,7 +90,8 @@ export async function POST(request: NextRequest) {
       failureMessage: 'Sorry, I lost that for a second. Could you say it again?',
       maxHistory: 40,
       turnDetection: {
-        language: 'en-IN',
+        // The ARES speech recognition language: one per call.
+        language: hindi ? 'hi-IN' : 'en-IN',
         config: {
           speech_threshold: 0.5,
           start_of_speech: { mode: 'vad', vad_config: { interrupt_duration_ms: 220, prefix_padding_ms: 300 } },

@@ -239,6 +239,7 @@ function TopBar({ sandbox, now, onReset, onRenamed }: { sandbox: Sandbox; now: n
                 {sandbox.engineer} <Pencil className="h-3 w-3 text-faint" />
               </button>
             )}
+            <LanguageToggle sandbox={sandbox} onChanged={onRenamed} />
           </span>
           <button
             onClick={onReset}
@@ -250,6 +251,50 @@ function TopBar({ sandbox, now, onReset, onRenamed }: { sandbox: Sandbox; now: n
         </div>
       </div>
     </header>
+  );
+}
+
+const LANGUAGES = [
+  { id: 'en', label: 'English' },
+  { id: 'hi', label: 'हिंदी' },
+] as const;
+
+/** Hindi mode: the next call hears Hindi and Vigil answers in Hinglish. Locked while a call is live. */
+function LanguageToggle({ sandbox, onChanged }: { sandbox: Sandbox; onChanged: () => void | Promise<void> }) {
+  const [pending, setPending] = useState<'en' | 'hi' | null>(null);
+  const current = pending ?? sandbox.language ?? 'en';
+  const locked = sandbox.call?.status === 'active';
+  const choose = async (language: 'en' | 'hi') => {
+    if (locked || pending || language === current) return;
+    setPending(language);
+    await postJSON('/api/sandbox', { id: sandbox.id, action: 'set_language', language }).catch(() => null);
+    await onChanged();
+    setPending(null);
+  };
+  return (
+    <span
+      data-testid="language-toggle"
+      role="group"
+      aria-label="Call language"
+      title={locked ? 'Applies to the next call' : 'The language you speak to Vigil. In Hindi, Vigil answers in Hinglish.'}
+      className={`ml-1 inline-flex items-center rounded-full border border-line/10 p-0.5 ${locked ? 'opacity-50' : ''}`}
+    >
+      {LANGUAGES.map((l) => (
+        <button
+          key={l.id}
+          type="button"
+          lang={l.id}
+          aria-pressed={current === l.id}
+          disabled={locked}
+          onClick={() => void choose(l.id)}
+          className={`rounded-full px-2 py-0.5 text-[11px] font-medium transition disabled:pointer-events-none ${
+            current === l.id ? 'bg-raised text-ink' : 'text-faint hover:text-ink'
+          }`}
+        >
+          {l.label}
+        </button>
+      ))}
+    </span>
   );
 }
 
