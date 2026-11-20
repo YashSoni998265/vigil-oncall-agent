@@ -81,7 +81,7 @@ test('instructions: engineer level by default, plain words on request, grounded 
     assert.match(text, /Plain words for common terms/);
     assert.match(text, /Murf Falcon 2\.1, voice Anisha/);
     // Caught by voice test V10: asked "who built you?", Vigil once said "Agora".
-    assert.match(text, /a solo developer built you for the Build with Agora hackathon/);
+    assert.match(text, /Yash Soni, a solo developer, built you for the Build with Agora hackathon/);
     assert.match(text, /Agora did not build you/);
     assert.match(text, /say the customer message aloud in one sentence as you post it/);
     assert.match(text, /close out in at most four spoken sentences/);
