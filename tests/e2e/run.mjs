@@ -199,6 +199,7 @@ const CHECKS = {
     const reply = i >= 0 ? (h.transcript.slice(i + 1).find((l) => l.who === 'agent')?.text ?? '') : '';
     return [
       ['default settings: English greeting', /it's Vigil/i.test(agent[0]?.text ?? '') && !/bol rahi/i.test(agent[0]?.text ?? '')],
+      [`English speech captioned in English letters: "${eng.find((l) => /flag|फ्लैग/i.test(l.text))?.text ?? ''}"`, eng.some((l) => /flag/i.test(l.text) && !DEV.test(l.text))],
       [`Hindi heard (${eng.length} engineer lines) and answered in Hinglish: "${reply.slice(0, 90)}"`, i >= 0 && /\b(hai|hain|raha|rahi|rahe|ho|mein|se|ki|ke|ka)\b/i.test(reply)],
       ['English "okay, turn the flag off" heard and approved: the flag change started', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
       ['Hindi "status page update kar do" acted on', (h.incident?.statusUpdates?.length ?? 0) >= 1],

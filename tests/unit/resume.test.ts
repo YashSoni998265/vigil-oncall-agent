@@ -59,9 +59,10 @@ test('resume context: the last eight lines, oldest first, internal marks removed
 
 test('one call, two languages: English (even in Devanagari) gets English, Hindi gets Hinglish', () => {
   const text = bilingualInstructions('Priya');
-  assert.match(text, /one call handles English, Hindi and Hinglish/);
+  assert.match(text, /speech recognition for English and Hindi together, so one call handles English, Hindi and Hinglish/);
+  assert.match(text, /English usually arrives in English letters and Hindi in Devanagari script/);
   assert.match(text, /"ओके, टर्न द फ्लैग ऑफ" means "okay, turn the flag off"/);
-  assert.match(text, /English words, even written in Devanagari, get an English reply; Hindi or mixed Hindi and English gets natural Hinglish/);
+  assert.match(text, /English gets an English reply; Hindi or mixed Hindi and English gets natural Hinglish/);
   assert.match(text, /Never write Devanagari yourself/);
-  assert.match(text, /in Devanagari if that is how they arrived, as approval_quote\. Never translate them/);
+  assert.match(text, /in whatever script they arrived, as approval_quote\. Never translate them/);
 });

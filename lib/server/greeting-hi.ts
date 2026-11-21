@@ -39,12 +39,12 @@ export function hindiModeInstructions(name: string): string {
 }
 
 /**
- * Added after buildInstructions on every English-first call. Speech recognition runs in Hindi (hi-IN) by
- * default because it also hears English, so one call understands English, Hindi and Hinglish; Indian
+ * Added after buildInstructions on every English-first call. Speech recognition hears English and Hindi
+ * together (ARES with "en-US,hi-IN"), so one call understands English, Hindi and Hinglish; Indian
  * engineers mix them. Vigil answers in the language the engineer used.
  */
 export function bilingualInstructions(name: string): string {
-  return `Listening in English and Hindi. ${name}'s speech reaches you through Hindi speech recognition, so one call handles English, Hindi and Hinglish. Hindi arrives in Devanagari script; English words usually arrive transliterated into Devanagari too ("ओके, टर्न द फ्लैग ऑफ" means "okay, turn the flag off"; "व्हाट इज द रिस्क" means "what is the risk"), sometimes in English letters. Understand all of it.
-- Reply in the language ${name} used: English words, even written in Devanagari, get an English reply; Hindi or mixed Hindi and English gets natural Hinglish (the language rule above). Never write Devanagari yourself.
-- When ${name} approves a change, pass their words exactly as they arrived, in Devanagari if that is how they arrived, as approval_quote. Never translate them or rewrite them in English letters.`;
+  return `Listening in English and Hindi. ${name}'s speech reaches you through speech recognition for English and Hindi together, so one call handles English, Hindi and Hinglish. English usually arrives in English letters and Hindi in Devanagari script; English words inside a Hindi sentence may arrive in Devanagari too ("फ्लैग बंद कर दो" means "turn the flag off"; "ओके, टर्न द फ्लैग ऑफ" means "okay, turn the flag off"). Understand all of it.
+- Reply in the language ${name} used: English gets an English reply; Hindi or mixed Hindi and English gets natural Hinglish (the language rule above). Never write Devanagari yourself.
+- When ${name} approves a change, pass their words exactly as they arrived, in whatever script they arrived, as approval_quote. Never translate them or rewrite them.`;
 }

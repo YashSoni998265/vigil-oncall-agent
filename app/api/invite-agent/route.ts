@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { Agent, AresSTT, ExpiresIn, MurfTTS, OpenAI } from 'agora-agents';
+import { Agent, AresSTT, ExpiresIn, MurfTTS, OpenAI, type TurnDetectionLanguage } from 'agora-agents';
 import { DEFAULT_AGENT_UID } from '@/lib/agora';
 import { SANDBOX_ID, readSandbox } from '@/lib/server/store';
 import { buildGreeting, buildInstructions } from '@/lib/server/prompt';
@@ -13,7 +13,7 @@ import { canStartCall, isOwner, markAgentStarted } from '@/lib/server/engine';
 export const maxDuration = 30;
 
 // Starts Vigil in the engineer's channel:
-// Agora ARES speech recognition (hi-IN, which hears English and Hindi) → GPT-4.1 mini (Agora-managed) with 13 tools
+// Agora ARES speech recognition (English and Hindi together) → GPT-4.1 mini (Agora-managed) with 13 tools
 // → Murf Falcon 2.1 text-to-speech (voice "Anisha", en-IN). The agent takes instructions from
 // the on-call engineer; a paged teammate can join the same channel and hear the call.
 
@@ -29,8 +29,7 @@ const KEYWORDS = [
   'Vigil', 'Thali', 'rollback', 'roll back', 'feature flag', 'coupon', 'coupon engine', 'payments', 'checkout',
   'PayNova', 'Cashly', 'UPI', 'failover', 'fail over', 'orders database', 'merchant weekly report', 'status page',
   'postmortem', 'Arjun', 'Neha', 'Kabir', 'Sana', 'Priya', 'incident', 'runbook',
-  // Hinglish an engineer may use under stress. Recognition runs in Hindi by default, so English words
-  // usually arrive in Devanagari; with ASR_LANGUAGE=en-IN it runs in English (India).
+  // Hinglish an engineer may use under stress. Recognition hears English and Hindi together by default.
   'bhai', 'kya', 'dikkat', 'haan', 'theek hai', 'kar do', 'band kar do', 'nahi', 'mat karo', 'ruko', 'jaldi',
 ];
 
@@ -78,10 +77,11 @@ export async function POST(request: NextRequest) {
     const toolsMode = process.env.AGENT_TOOLS ?? 'rest';
     const viaMcp = toolsMode === 'mcp' || (toolsMode === 'mcp-owner' && owner);
 
-    // One call hears English, Hindi and Hinglish: ARES runs in Hindi (hi-IN), which also hears English
-    // (it arrives transliterated into Devanagari), because Indian engineers mix the two. ASR_LANGUAGE=en-IN
-    // switches back to English-only recognition without a code change.
-    const asrLanguage = process.env.ASR_LANGUAGE === 'en-IN' ? 'en-IN' : 'hi-IN';
+    // One call hears English, Hindi and Hinglish, because Indian engineers mix the two: ARES's Global ASR
+    // pipeline takes several languages as one comma-separated string, so English arrives in English letters
+    // and Hindi in Devanagari. ASR_LANGUAGE overrides it without a code change (en-IN: English only;
+    // hi-IN: Hindi, which also hears English but writes it in Devanagari).
+    const asrLanguage = process.env.ASR_LANGUAGE?.trim() || 'en-US,hi-IN';
     // हिंदी (chosen in the console) only changes how Vigil talks: a Hinglish greeting (English when there is
     // no Hinglish one for this moment) and Hinglish-first answers. Otherwise English first, answering in kind.
     const hindi = sb.language === 'hi';
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     // greeting from the top, and carry the conversation so far.
     const resume = reconnect && body.resume === true;
     const greeting = resume ? resumeGreeting(sb) : ((hindi ? buildGreetingHi(sb, Date.now()) : null) ?? buildGreeting(sb, Date.now()));
-    const languageRule = hindi ? hindiModeInstructions(sb.engineer) : asrLanguage === 'hi-IN' ? bilingualInstructions(sb.engineer) : '';
+    const languageRule = hindi ? hindiModeInstructions(sb.engineer) : asrLanguage.includes('hi-IN') ? bilingualInstructions(sb.engineer) : '';
     const instructions = [buildInstructions(sb), languageRule, resume ? resumeContext(sb) : ''].filter(Boolean).join('\n\n');
 
     const agent = new Agent({
@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
       failureMessage: 'Sorry, I lost that for a second. Could you say it again?',
       maxHistory: 40,
       turnDetection: {
-        // The ARES speech recognition language: one per call (hi-IN hears English too).
-        language: asrLanguage,
+        // ARES speech recognition: English and Hindi together (the SDK's type lists single tags only).
+        language: asrLanguage as TurnDetectionLanguage,
         config: {
           speech_threshold: 0.5,
           start_of_speech: { mode: 'vad', vad_config: { interrupt_duration_ms: 220, prefix_padding_ms: 300 } },
