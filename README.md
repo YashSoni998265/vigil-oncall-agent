@@ -146,8 +146,8 @@ Say (or tap): *"What did you rule out?"* · *"Why not just roll back?"* · *"Yes
 
 **The two-minute path:**
 1. Open the [console](https://vigil-oncall.vercel.app/console). You get a private sandbox. To be greeted by your own name, click the name next to **On call** at the top and change it.
-2. On **Bad deploy breaks checkout**, press **Break it**. Vigil investigates, and the phone rings within seconds.
-3. Answer and allow the microphone (or type). Vigil gives the root cause, why a rollback is unsafe, and recommends the flag. Ask *"What did you rule out?"*, then say *"Yes, start."*
+2. Click **Bad deploy breaks checkout**: a **What's at stake** panel shows the services involved, their owners and the money flowing through them. Press **Break it**. Vigil investigates, and the phone rings within seconds.
+3. Answer and allow the microphone (or type). Vigil names the release, the PR and the exception, says why a rollback is unsafe, and recommends the flag. Ask *"What exactly changed in 4.2.1?"* (PR, commit, files) or *"What did you rule out?"*, then say *"Yes, start."*
 4. The flag goes to 10% of traffic first. About 15 seconds later Vigil announces the canary result and rolls out to everyone; about 30 seconds after that it tells you, unprompted, that checkout has recovered.
 5. Say *"Update the status page"*, then *"Resolve it and file the tickets."* Vigil closes out in order and reads out the tickets. Open the postmortem from the side panel.
 
