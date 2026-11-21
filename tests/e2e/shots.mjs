@@ -16,9 +16,11 @@ for (const [name, w, h, dpr] of [['desktop', 1440, 960, 1], ['mobile', 390, 844,
   page.on('pageerror', (e) => errors.push(`${name} pageerror: ${String(e).slice(0, 160)}`));
   await page.setViewport({ width: w, height: h, deviceScaleFactor: dpr });
   await page.goto(BASE + '/console', { waitUntil: 'networkidle2' });
-  await page.waitForSelector('[data-testid=break-bad_deploy]', { timeout: 30000 });
+  await page.waitForSelector('[data-testid=pick-bad_deploy]', { timeout: 30000 });
   await sleep(800);
   await page.screenshot({ path: `${OUT}/console-${name}-idle.png`, fullPage: name === 'desktop' });
+  await page.click('[data-testid=pick-bad_deploy]');
+  await page.waitForSelector('[data-testid=break-bad_deploy]', { timeout: 10000 });
   await page.click('[data-testid=break-bad_deploy]');
   await sleep(1600);
   await page.screenshot({ path: `${OUT}/console-${name}-investigating.png`, fullPage: false });

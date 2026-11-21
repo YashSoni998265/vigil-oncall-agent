@@ -49,6 +49,8 @@ const SCENARIOS = {
   V11_reconnect: { incident: 'bad_deploy', audio: 'silence', duration: 50, silentFirst: true, typed: [[32, 'Okay, turn the flag off.']] },
   // An engineer under stress speaks Hindi: a calm Hinglish answer, and a Hindi yes that works.
   V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
+  // Technical depth: the greeting names the PR and the exception; "what exactly changed?" gets exact identifiers.
+  V16_technical: { incident: 'bad_deploy', audio: 'silence', duration: 80, typed: [[30, 'What exactly changed in 4.2.1?'], [54, 'Yes, start.']] },
   // The production-grade flow, typed: what was ruled out, the canary and rollout (announced), the
   // unprompted recovery, comms, then the ordered close-out with tickets.
   V15_production: {
@@ -151,6 +153,15 @@ const CHECKS = {
       [`Vigil answered in Hinglish, in English letters: "${replies.slice(0, 110)}"`, /\b(hai|hoon|kar|rahi|nahi|aap|ki|ka|ko|mein)\b/i.test(replies) && !/[\u0900-\u097F]/.test(replies)],
       // The flag change may run in stages (a canary first): any successful switch-off counts.
       ['the Hindi "हाँ, फ्लैग बंद कर दो" switched the flag off', h.incident?.remediations.some((r) => r.action === 'disable_feature_flag' && r.outcome === 'success')],
+    ];
+  },
+  V16_technical: (h) => {
+    const agent = h.transcript.filter((l) => l.who === 'agent').map((l) => l.text);
+    const answer = agent.slice(1).join(' ');
+    return [
+      [`greeting names the PR and the exception`, /PR 482/.test(agent[0] ?? '') && /NullPointerException/.test(agent[0] ?? '')],
+      [`"what exactly changed?" answered with exact identifiers: "${answer.slice(0, 140)}"`, /482|7f3c2a1|CouponEngine|0087|CouponRules/.test(answer)],
+      ['the flag went to a 10% canary', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
     ];
   },
   V11_reconnect: (h) => [

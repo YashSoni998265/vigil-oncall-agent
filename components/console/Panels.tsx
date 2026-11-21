@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { diagnosis } from '@/lib/server/diagnosis';
+import { STAKES } from '@/lib/stakes';
 import Link from 'next/link';
 import {
   Activity,
@@ -37,36 +38,78 @@ const SCENARIO_ICON: Record<ScenarioId, typeof Rocket> = {
 };
 
 export function ScenarioPicker({ onPick, busy, compact = false }: { onPick: (s: ScenarioId) => void; busy: ScenarioId | null; compact?: boolean }) {
+  // Picking an incident first shows what is at stake; you break production from that panel,
+  // with the services, the owners and the money in view.
+  const [selected, setSelected] = useState<ScenarioId | null>(null);
   return (
-    <div className={`grid gap-3 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-3'}`}>
-      {SCENARIO_ORDER.map((id) => {
-        const s = SCENARIOS[id];
-        const Icon = SCENARIO_ICON[id];
-        return (
-          <button
-            key={id}
-            onClick={() => onPick(id)}
-            disabled={busy !== null}
-            data-testid={`break-${id}`}
-            className="group relative flex flex-col items-start gap-3 overflow-hidden rounded-2xl border border-line/10 bg-surface p-5 text-left transition hover:-translate-y-0.5 hover:border-bad/40 hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:cursor-wait disabled:opacity-60"
-          >
-            <span className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-bad/0 blur-2xl transition group-hover:bg-bad/15" />
-            <span className="flex w-full items-center justify-between">
-              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-raised text-ink ring-1 ring-line/10">
-                <Icon className="h-5 w-5" aria-hidden />
+    <div className="space-y-3">
+      <div className={`grid gap-3 ${compact ? 'sm:grid-cols-3' : 'md:grid-cols-3'}`}>
+        {SCENARIO_ORDER.map((id) => {
+          const s = SCENARIOS[id];
+          const Icon = SCENARIO_ICON[id];
+          const active = selected === id;
+          return (
+            <button
+              key={id}
+              onClick={() => setSelected(active ? null : id)}
+              disabled={busy !== null}
+              aria-pressed={active}
+              data-testid={`pick-${id}`}
+              className={`group relative flex flex-col items-start gap-3 overflow-hidden rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 hover:border-bad/40 hover:bg-raised focus:outline-none focus-visible:ring-2 focus-visible:ring-bad/60 disabled:opacity-60 ${active ? 'border-bad/50 bg-raised' : 'border-line/10 bg-surface'}`}
+            >
+              <span className="pointer-events-none absolute -right-10 -top-10 h-32 w-32 rounded-full bg-bad/0 blur-2xl transition group-hover:bg-bad/15" />
+              <span className="flex w-full items-center justify-between">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-raised text-ink ring-1 ring-line/10">
+                  <Icon className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="rounded-full bg-raised px-2.5 py-1 text-[11px] font-medium text-dim">{s.difficulty}</span>
               </span>
-              <span className="rounded-full bg-raised px-2.5 py-1 text-[11px] font-medium text-dim">{s.difficulty}</span>
-            </span>
-            <span>
-              <span className="block text-[17px] font-semibold tracking-tight text-ink">{s.name}</span>
-              {!compact && <span className="mt-1 block text-sm leading-relaxed text-dim">{s.tagline}</span>}
-            </span>
-            <span className="mt-auto inline-flex items-center gap-1.5 text-sm font-semibold text-bad">
-              {busy === id ? 'Breaking…' : 'Break it'} <ArrowRight className="h-4 w-4 transition group-hover:translate-x-0.5" aria-hidden />
-            </span>
-          </button>
-        );
-      })}
+              <span>
+                <span className="block text-[17px] font-semibold tracking-tight text-ink">{s.name}</span>
+                {!compact && <span className="mt-1 block text-sm leading-relaxed text-dim">{s.tagline}</span>}
+              </span>
+              <span className="mt-auto inline-flex items-center gap-1.5 text-sm font-semibold text-bad">
+                {active ? 'What’s at stake, below' : 'See what’s at stake'} <ArrowRight className={`h-4 w-4 transition ${active ? 'rotate-90' : 'group-hover:translate-x-0.5'}`} aria-hidden />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {selected && <StakesPanel id={selected} busy={busy} onBreak={() => onPick(selected)} />}
+    </div>
+  );
+}
+
+function StakesPanel({ id, busy, onBreak }: { id: ScenarioId; busy: ScenarioId | null; onBreak: () => void }) {
+  const s = SCENARIOS[id];
+  const st = STAKES[id];
+  return (
+    <div className="rounded-2xl border border-bad/30 bg-bad/[0.04] p-5" data-testid="stakes-panel">
+      <p className="text-[11.5px] font-semibold uppercase tracking-wider text-bad">What’s at stake</p>
+      <p className="mt-1 text-[16px] font-semibold tracking-tight text-ink">{s.name}</p>
+      <ul className="mt-3 space-y-2">
+        {st.services.map((x) => (
+          <li key={x.name} className="flex flex-wrap items-baseline gap-x-2 text-[13px] leading-relaxed">
+            <span className="font-mono text-ink">{x.name}</span>
+            <span className="text-dim">{x.role}.</span>
+            <span className="text-faint">Owner: {x.owner}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 text-[13.5px] leading-relaxed text-ink">
+        <span className="font-semibold">At stake:</span> {st.atStake}
+      </p>
+      <p className="mt-1 text-[13.5px] leading-relaxed text-dim">
+        <span className="font-semibold text-ink">If it breaks:</span> {st.ifItBreaks}
+      </p>
+      <button
+        onClick={onBreak}
+        disabled={busy !== null}
+        data-testid={`break-${id}`}
+        className="mt-4 inline-flex items-center gap-2 rounded-xl bg-bad px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-bad/20 transition hover:brightness-110 disabled:opacity-50"
+      >
+        {busy === id ? 'Breaking…' : 'Break it'} <ArrowRight className="h-4 w-4" aria-hidden />
+      </button>
     </div>
   );
 }
