@@ -245,59 +245,78 @@ function ThresholdControl({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
+  const value = Number(draft);
+  const valid = draft.trim() !== '' && Number.isFinite(value) && value >= 0;
   const save = async () => {
-    const v = Number(draft);
-    setEditing(false);
-    if (!onThreshold || draft.trim() === '' || !Number.isFinite(v) || v === def.threshold) return;
+    if (!onThreshold || !valid) return;
     setSaving(true);
-    await onThreshold(v).catch(() => {});
+    await onThreshold(value === def.threshold && !custom ? null : value).catch(() => {});
     setSaving(false);
+    setEditing(false);
   };
   if (editing) {
     return (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex flex-wrap items-center gap-1.5 rounded-lg border border-brand/50 bg-brand/10 px-2 py-1 text-[12.5px] text-ink">
         Alert at
         <input
           autoFocus
           type="number"
           step="any"
+          min={0}
           inputMode="decimal"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={() => void save()}
           onKeyDown={(e) => {
             if (e.key === 'Enter') void save();
             if (e.key === 'Escape') setEditing(false);
           }}
-          aria-label={`Alert threshold for ${def.label}, in ${def.unit}`}
-          className="w-16 rounded border border-line/20 bg-canvas px-1 py-0.5 text-[11px] text-ink focus:border-brand/60 focus:outline-none"
+          aria-label={`Alert threshold for ${def.label}`}
+          className="w-20 rounded-md border border-line/25 bg-canvas px-2 py-1 text-[13px] text-ink focus:border-brand focus:outline-none"
           data-testid={`threshold-input-${def.id}`}
         />
-        {def.unit === '/min' ? '/min' : def.unit}
+        <span className="text-dim">{def.unit}</span>
+        <button
+          type="button"
+          onClick={() => void save()}
+          disabled={!valid || saving}
+          className="rounded-md bg-brand px-2.5 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
+          data-testid={`threshold-save-${def.id}`}
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        <button type="button" onClick={() => setEditing(false)} className="rounded-md px-2 py-1 text-[12px] text-dim hover:text-ink">
+          Cancel
+        </button>
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1">
-      <span className="inline-block h-px w-3 border-t border-dashed border-warn/70" /> Alert {fmt(def.threshold)}
-      {custom && <span className="text-brand">(yours)</span>}
-      {onThreshold && (
+    <span className="inline-flex items-center gap-1.5">
+      {onThreshold ? (
         <button
           type="button"
           onClick={() => {
             setDraft(String(def.threshold));
             setEditing(true);
           }}
-          disabled={saving}
-          className="ml-0.5 rounded px-1 text-dim underline underline-offset-2 hover:text-ink disabled:opacity-50"
+          className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[12px] font-medium transition hover:border-brand/60 hover:text-ink ${
+            custom ? 'border-brand/50 bg-brand/10 text-ink' : 'border-line/20 bg-raised/60 text-dim'
+          }`}
           title="Set your own alert level: Vigil calls only when it is crossed"
           data-testid={`threshold-edit-${def.id}`}
         >
-          {saving ? 'Saving…' : 'Edit'}
+          <span className="inline-block h-px w-3 border-t border-dashed border-warn/80" />
+          {custom ? 'Your alert' : 'Alert'} {fmt(def.threshold)}
+          <span aria-hidden>✎</span>
+          <span className="sr-only">Edit</span>
         </button>
+      ) : (
+        <span className="inline-flex items-center gap-1">
+          <span className="inline-block h-px w-3 border-t border-dashed border-warn/70" /> Alert {fmt(def.threshold)}
+        </span>
       )}
       {custom && onThreshold && (
-        <button type="button" onClick={() => void onThreshold(null)} className="rounded px-1 text-dim underline underline-offset-2 hover:text-ink" title="Back to the default alert level">
+        <button type="button" onClick={() => void onThreshold(null)} className="rounded px-1 text-[12px] text-dim underline underline-offset-2 hover:text-ink" title="Back to the default alert level">
           Reset
         </button>
       )}
