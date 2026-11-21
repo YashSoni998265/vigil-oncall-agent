@@ -55,6 +55,8 @@ const SCENARIOS = {
   // queued behind it). The test hook treats Vigil's second reply as stalled; the call screen must swap in a
   // fresh agent that says it is back (not the opening greeting) and still acts on the next request.
   V18_midcall: { incident: 'bad_deploy', audio: 'silence', duration: 94, stallSecond: true, typed: [[26, 'What did you rule out?'], [64, 'Okay, turn the flag off.']] },
+  // Checks before it fixes: region scope, customer experience and the five-whys RCA, asked on a live call.
+  V20_insights: { incident: 'bad_deploy', audio: 'silence', duration: 84, typed: [[26, 'Is this one region or everyone?'], [44, 'What are customers seeing right now?'], [62, 'Walk me through the root cause analysis.']] },
   // One call, two languages, default settings (no हिंदी toggle): Hindi, then English, then Hindi again.
   V19_bilingual: { incident: 'bad_deploy', audio: 'V13_mixed', duration: 100 },
   // Off-topic requests mid-incident (a hotel tip, in English and in Hinglish) get a one-line decline and
@@ -176,6 +178,27 @@ const CHECKS = {
       [`greeting names the PR and the exception`, /PR 482/.test(agent[0] ?? '') && /NullPointerException/.test(agent[0] ?? '')],
       [`"what exactly changed?" answered with exact identifiers: "${answer.slice(0, 140)}"`, /482|7f3c2a1|CouponEngine|0087|CouponRules/.test(answer)],
       ['the flag went to a 10% canary', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
+    ];
+  },
+  V20_insights: (h) => {
+    const replyTo = (re) => {
+      const i = h.transcript.findIndex((l) => l.who === 'engineer' && re.test(l.text));
+      if (i < 0) return '';
+      const out = [];
+      for (const l of h.transcript.slice(i + 1)) {
+        if (l.who === 'engineer') break;
+        if (l.who === 'agent') out.push(l.text);
+      }
+      return out.join(' ');
+    };
+    const region = replyTo(/one region/i);
+    const customers = replyTo(/customers seeing/i);
+    const rca = replyTo(/root cause analysis/i);
+    return [
+      [`region: every region, with evidence: "${region.slice(0, 120)}"`, /every region|all (four |the )?regions|everyone|all regions/i.test(region) && /Mumbai|Delhi|Bengaluru|Hyderabad|region/i.test(region)],
+      [`customers: who and what they see: "${customers.slice(0, 120)}"`, /coupon/i.test(customers) && /payment failed|fail|ticket/i.test(customers)],
+      [`RCA: the why chain: "${rca.slice(0, 120)}"`, /0087|migration/i.test(rca) && /null ?pointer|rules|CI|test/i.test(rca)],
+      ['questions never changed production', (h.incident?.remediations.length ?? 0) === 0],
     ];
   },
   V18_midcall: (h) => {
