@@ -52,7 +52,7 @@ export const MAX_CALLS_PER_SANDBOX = Number(process.env.MAX_CALLS_PER_SANDBOX ??
 export const OWNER_MAX_CALL_SECONDS = Number(process.env.OWNER_MAX_CALL_SECONDS ?? 900);
 export const DAILY_CALL_CAP = Number(process.env.DAILY_CALL_CAP ?? 60);
 /** Fresh agents the call screen may swap in when Vigil's voice never starts (per call). */
-export const MAX_VOICE_RESTARTS = 2;
+export const MAX_VOICE_RESTARTS = 3;
 
 const nowIso = (t = Date.now()) => new Date(t).toISOString();
 const uid = () => randomBytes(6).toString('hex');

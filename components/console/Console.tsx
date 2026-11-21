@@ -259,7 +259,7 @@ const LANGUAGES = [
   { id: 'hi', label: 'हिंदी' },
 ] as const;
 
-/** Hindi mode: the next call hears Hindi and Vigil answers in Hinglish. Locked while a call is live. */
+/** Every call understands English, Hindi and Hinglish; हिंदी makes Vigil start and answer in Hinglish. Locked while a call is live. */
 function LanguageToggle({ sandbox, onChanged }: { sandbox: Sandbox; onChanged: () => void | Promise<void> }) {
   const [pending, setPending] = useState<'en' | 'hi' | null>(null);
   const current = pending ?? sandbox.language ?? 'en';
@@ -276,7 +276,7 @@ function LanguageToggle({ sandbox, onChanged }: { sandbox: Sandbox; onChanged: (
       data-testid="language-toggle"
       role="group"
       aria-label="Call language"
-      title={locked ? 'Applies to the next call' : 'The language you speak to Vigil. In Hindi, Vigil answers in Hinglish.'}
+      title={locked ? 'Applies to the next call' : 'Vigil understands English and Hindi on every call. हिंदी: she starts and answers in Hinglish.'}
       className={`ml-1 inline-flex items-center rounded-full border border-line/10 p-0.5 ${locked ? 'opacity-50' : ''}`}
     >
       {LANGUAGES.map((l) => (

@@ -20,6 +20,7 @@ import {
   ChatMessagePriority,
   ChatMessageType,
   TranscriptHelperMode,
+  TurnStatus,
   type AgentTranscription,
   type TranscriptHelperItem,
   type UserTranscription,
@@ -54,9 +55,18 @@ interface Props {
 
 // Voice safety net: Vigil always greets within a few seconds of the call connecting. If no audio
 // arrives within this window, Agora's speech output never reached Murf and the whole call would stay
-// silent, so the screen swaps in a fresh agent on the same call (the server allows two swaps a call).
+// silent, so the screen swaps in a fresh agent on the same call (the server allows three swaps a call).
 const VOICE_WINDOW_MS = 9_000;
-const MAX_VOICE_RECONNECTS = 2;
+const MAX_VOICE_RECONNECTS = 3;
+// The same net for the rest of the call. Seen live: a reply's words arrived, about one second of it was
+// heard, then the voice stalled, and every later reply queued silently behind it. So: a reply still in
+// progress, mostly unspoken, with no voice for MID_CALL_SILENCE_MS; or no reply at all MID_CALL_NO_REPLY_MS
+// after the engineer spoke. Then a fresh agent joins the same call, says it is back, and carries on.
+const MID_CALL_SILENCE_MS = 6_500;
+const MID_CALL_NO_REPLY_MS = 12_000;
+// Vigil speaks at about 45 to 70 ms a character; 40 keeps the estimate of the unspoken part on the low side.
+const MS_PER_CHAR = 40;
+const UNSPOKEN_MS = 2_000;
 
 // Vigil's internal messages (monitoring updates, teammates' typed questions) come back in Agora's
 // transcript as user turns. Nobody on this call said them, so they are never shown or saved as captions.
@@ -157,72 +167,173 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isReady, joined]);
 
-  // Voice safety net (see VOICE_WINDOW_MS): listen for Vigil's audio; on silence, swap in a fresh agent.
+  // Voice safety net (see VOICE_WINDOW_MS and MID_CALL_SILENCE_MS): listen for Vigil's audio and watch
+  // her captions; when her voice is missing, swap in a fresh agent on the same call.
   const remoteUsersRef = useRef(remoteUsers);
   useEffect(() => {
     remoteUsersRef.current = remoteUsers;
   }, [remoteUsers]);
-  const heardVoice = useRef(false);
+  const heardVoice = useRef(false); // the current agent has been heard
+  const everHeard = useRef(false); // some agent on this call has been heard: a later swap resumes the call
   const voiceAttempts = useRef(0);
+  const swapping = useRef(false);
+  const lastAudioAt = useRef(0);
+  const agentActivityAt = useRef(0); // her latest caption change or audio
+  const engineerAt = useRef(0); // the engineer last finished speaking or typing
+  const agentStateRef = useRef<AgentState | null>(null);
+  const agentTurn = useRef<{ key: string; text: string; status: TurnStatus | undefined; since: number } | null>(null);
+  const turnHeardMs = useRef(new Map<string, number>());
+  const agentTurnsSeen = useRef(new Set<string>());
+  const engineerTurnsEnded = useRef(new Set<string>());
   const [voice, setVoice] = useState<'waiting' | 'heard' | 'reconnecting' | 'failed'>('waiting');
-  // Test hook for the e2e harness: treat the first agent as silent, to prove the reconnect works.
+  // Test hooks for the e2e harness: treat the first agent as silent (a silent start), or the first
+  // agent's second reply as stalled (a mid-call stall), to prove each kind of reconnect works.
   const testSilentFirst = useRef(false);
+  const testStall = useRef(false);
   useEffect(() => {
     try {
       if (localStorage.getItem('vigil.testSilentVoice') === '1') {
         testSilentFirst.current = true;
         localStorage.removeItem('vigil.testSilentVoice');
       }
+      if (localStorage.getItem('vigil.testStallVoice') === '1') {
+        testStall.current = true;
+        localStorage.removeItem('vigil.testStallVoice');
+      }
     } catch {}
   }, []);
+  const stallTest = () => testStall.current && voiceAttempts.current === 0 && agentTurnsSeen.current.size >= 2;
+  useEffect(() => {
+    agentStateRef.current = agentState;
+  }, [agentState]);
   useEffect(() => {
     const id = setInterval(() => {
-      if (heardVoice.current || (testSilentFirst.current && voiceAttempts.current === 0)) return;
+      if ((testSilentFirst.current && voiceAttempts.current === 0) || stallTest()) return;
       const agent = remoteUsersRef.current.find((u) => String(u.uid) === agentUid);
-      if ((agent?.audioTrack?.getVolumeLevel() ?? 0) > 0.02) {
+      const level = agent?.audioTrack?.getVolumeLevel() ?? 0;
+      if (level <= 0.01) return;
+      const now = Date.now();
+      lastAudioAt.current = now;
+      agentActivityAt.current = now;
+      const turn = agentTurn.current;
+      if (turn) turnHeardMs.current.set(turn.key, (turnHeardMs.current.get(turn.key) ?? 0) + 200);
+      if (!heardVoice.current && level > 0.02) {
         heardVoice.current = true;
+        everHeard.current = true;
         setVoice('heard');
       }
     }, 200);
     return () => clearInterval(id);
   }, [agentUid]);
+
+  const callAlive = useRef(true);
+  const voiceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
-    if (!joined) return;
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const check = async () => {
-      if (cancelled || heardVoice.current) return;
+    callAlive.current = true;
+    return () => {
+      callAlive.current = false;
+      if (voiceTimer.current) clearTimeout(voiceTimer.current);
+    };
+  }, []);
+  // Swap the silent agent for a fresh one on the same call. Mid-call (she was heard before), the fresh
+  // agent says she is back and gets the conversation so far instead of the opening greeting.
+  const swapVoice = useRef<() => Promise<void>>(async () => {});
+  // The current agent must be heard within VOICE_WINDOW_MS: after joining, and after every swap.
+  const expectVoice = useRef<() => void>(() => {});
+  useEffect(() => {
+    expectVoice.current = () => {
+      if (voiceTimer.current) clearTimeout(voiceTimer.current);
+      voiceTimer.current = setTimeout(() => {
+        if (callAlive.current && !heardVoice.current) void swapVoice.current();
+      }, VOICE_WINDOW_MS);
+    };
+    swapVoice.current = async () => {
+      if (swapping.current || !callAlive.current) return;
       if (voiceAttempts.current >= MAX_VOICE_RECONNECTS) {
         setVoice('failed');
         return;
       }
+      swapping.current = true;
       voiceAttempts.current += 1;
+      heardVoice.current = false;
+      const resume = everHeard.current;
       setVoice('reconnecting');
       onAgentChange(''); // the server is about to report a different agent: not a call that ended
-      const restarted = await postJSON('/api/sandbox', { id: sandbox.id, action: 'restart_voice' }, 10_000).catch(() => null);
-      if (cancelled) return;
-      if (!restarted?.ok) {
-        setVoice('failed');
-        return;
+      try {
+        const restarted = await postJSON('/api/sandbox', { id: sandbox.id, action: 'restart_voice' }, 10_000).catch(() => null);
+        if (!callAlive.current) return;
+        if (!restarted?.ok) {
+          setVoice('failed');
+          return;
+        }
+        const invited = await postJSON<{ agent_id?: string }>(
+          '/api/invite-agent',
+          { sandbox_id: sandbox.id, channel_name: session.channel, requester_id: session.uid, reconnect: true, resume },
+          20_000,
+        ).catch(() => null);
+        if (!callAlive.current) return;
+        if (invited?.ok && invited.data.agent_id) onAgentChange(invited.data.agent_id);
+        // Nothing is owed by the fresh agent yet: it must greet (checked by expectVoice), then answer.
+        agentTurn.current = null;
+        engineerAt.current = 0;
+        lastAudioAt.current = Date.now();
+        expectVoice.current();
+      } finally {
+        swapping.current = false;
       }
-      const invited = await postJSON<{ agent_id?: string }>(
-        '/api/invite-agent',
-        { sandbox_id: sandbox.id, channel_name: session.channel, requester_id: session.uid, reconnect: true },
-        20_000,
-      ).catch(() => null);
-      if (cancelled) return;
-      if (invited?.ok && invited.data.agent_id) onAgentChange(invited.data.agent_id);
-      timer = setTimeout(() => void check(), VOICE_WINDOW_MS);
     };
-    timer = setTimeout(() => void check(), VOICE_WINDOW_MS);
-    return () => {
-      cancelled = true;
-      if (timer) clearTimeout(timer);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  });
+  useEffect(() => {
+    if (joined) expectVoice.current();
+  }, [joined]);
+  // Mid-call: a reply in progress that stalled, or no reply at all after the engineer spoke.
+  useEffect(() => {
+    if (!joined) return;
+    const id = setInterval(() => {
+      if (!everHeard.current || !heardVoice.current || swapping.current) return;
+      const now = Date.now();
+      const turn = agentTurn.current;
+      const state = agentStateRef.current;
+      const stalled =
+        !!turn &&
+        (turn.status === TurnStatus.IN_PROGRESS || stallTest()) &&
+        (stallTest() || (state !== AgentState.LISTENING && state !== AgentState.IDLE)) &&
+        now - lastAudioAt.current >= MID_CALL_SILENCE_MS &&
+        now - turn.since >= MID_CALL_SILENCE_MS &&
+        turn.text.length * MS_PER_CHAR - (turnHeardMs.current.get(turn.key) ?? 0) > UNSPOKEN_MS;
+      const noReply = engineerAt.current > 0 && engineerAt.current > agentActivityAt.current && now - engineerAt.current >= MID_CALL_NO_REPLY_MS;
+      if (stalled || noReply) void swapVoice.current();
+    }, 500);
+    return () => clearInterval(id);
   }, [joined]);
 
   const transcript = useMemo(() => normalizeTranscript(raw, String(client.uid)), [raw, client.uid]);
+
+  // For the voice safety net: Vigil's latest caption turn, and when the engineer last finished a turn.
+  useEffect(() => {
+    const now = Date.now();
+    const said = transcript.filter((i) => typeof i.text === 'string' && i.text.trim() && !INTERNAL_MARK.test(String(i.text)));
+    const mine = said.filter((i) => String(i.uid) === agentUid);
+    const last = mine[mine.length - 1];
+    if (last) {
+      const text = String(last.text);
+      const key = `${last.turn_id}:${text.slice(0, 24)}`;
+      const prev = agentTurn.current;
+      if (!prev || prev.key !== key || prev.text !== text || prev.status !== last.status) {
+        agentTurn.current = { key, text, status: last.status, since: prev?.key === key ? prev.since : now };
+        agentActivityAt.current = now;
+        agentTurnsSeen.current.add(key);
+      }
+    }
+    for (const i of said) {
+      if (String(i.uid) === agentUid || Number(i.uid) === TEAMMATE_UID || i.status !== TurnStatus.END) continue;
+      const key = `${i.turn_id}:${i.uid}:${String(i.text).slice(0, 24)}`;
+      if (!engineerTurnsEnded.current.has(key)) {
+        engineerTurnsEnded.current.add(key);
+        engineerAt.current = now;
+      }
+    }
+  }, [transcript, agentUid]);
 
   // Who said what: the agent, the engineer (this browser) or the paged teammate.
   const spoken: Line[] = useMemo(
@@ -284,6 +395,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
       try {
         await postJSON('/api/sandbox', { id: sandbox.id, action: 'typed', text: clean });
         const ai = aiRef.current ?? AgoraVoiceAI.getInstance();
+        engineerAt.current = Date.now(); // a reply is now owed (voice safety net)
         await ai?.sendText(agentUid, {
           messageType: ChatMessageType.TEXT,
           priority: ChatMessagePriority.INTERRUPTED,
@@ -291,6 +403,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
           text: clean,
         });
       } catch (error) {
+        engineerAt.current = 0;
         console.error('[typed] send failed', error);
       } finally {
         setSending(false);

@@ -42,7 +42,7 @@ async function liveCall() {
   return { engine, store, id: sb.id };
 }
 
-test('a silent agent is stopped and the swap is logged; at most two swaps a call', async () => {
+test('a silent agent is stopped and the swap is logged; at most three swaps a call', async () => {
   const { engine, store, id } = await liveCall();
 
   let r = await engine.restartVoice(id);
@@ -62,8 +62,11 @@ test('a silent agent is stopped and the swap is logged; at most two swaps a call
 
   r = await engine.restartVoice(id);
   assert.equal(r.ok, true, 'second swap allowed');
+  // A stall later in the call (Vigil's voice stopped mid-sentence) gets the same fix: a third swap.
   r = await engine.restartVoice(id);
-  assert.equal(r.ok, false, 'a third swap is refused');
+  assert.equal(r.ok, true, 'third swap allowed');
+  r = await engine.restartVoice(id);
+  assert.equal(r.ok, false, 'a fourth swap is refused');
   assert.equal(r.effects.length, 0);
 });
 

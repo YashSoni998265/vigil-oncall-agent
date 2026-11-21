@@ -51,6 +51,12 @@ const SCENARIOS = {
   V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
   // Technical depth: the greeting names the PR and the exception; "what exactly changed?" gets exact identifiers.
   V16_technical: { incident: 'bad_deploy', audio: 'silence', duration: 80, typed: [[30, 'What exactly changed in 4.2.1?'], [54, 'Yes, start.']] },
+  // Mid-call voice stall (seen live on 21 Nov: one second of a reply, then silence, and every later turn
+  // queued behind it). The test hook treats Vigil's second reply as stalled; the call screen must swap in a
+  // fresh agent that says it is back (not the opening greeting) and still acts on the next request.
+  V18_midcall: { incident: 'bad_deploy', audio: 'silence', duration: 94, stallSecond: true, typed: [[26, 'What did you rule out?'], [64, 'Okay, turn the flag off.']] },
+  // One call, two languages, default settings (no हिंदी toggle): Hindi, then English, then Hindi again.
+  V19_bilingual: { incident: 'bad_deploy', audio: 'V13_mixed', duration: 100 },
   // Off-topic requests mid-incident (a hotel tip, in English and in Hinglish) get a one-line decline and
   // the conversation goes back to the incident; a question about Vigil itself is still answered.
   V17_offtopic: {
@@ -172,6 +178,33 @@ const CHECKS = {
       ['the flag went to a 10% canary', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
     ];
   },
+  V18_midcall: (h) => {
+    const agent = h.transcript.filter((l) => l.who === 'agent');
+    const firstSpoke = agent[0] ? Date.parse(agent[0].at) : Infinity;
+    const swap = h.actions?.find((a) => a.title === 'Reconnecting Vigil’s voice');
+    const back = agent.find((l) => /voice cut out for a moment/i.test(l.text));
+    return [
+      ['a mid-call stall was caught: the stalled agent was swapped for a fresh one', Boolean(swap) && h.actions?.some((a) => a.title === 'Vigil rejoined the call')],
+      ['the swap came after Vigil had already spoken (mid-call, not the start)', Boolean(swap) && Date.parse(swap.at) - firstSpoke > 10_000],
+      [`the fresh agent said it was back, not the opening again${back ? `: "${back.text.slice(0, 80)}"` : ''}`, Boolean(back) && agent.filter((l) => /severity one/i.test(l.text)).length === 1],
+      ['the fresh agent carried on: flag change after a typed yes', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
+      ['the swap did not count as a new call', h.callsUsed === 1],
+    ];
+  },
+  V19_bilingual: (h) => {
+    const DEV = /[ऀ-ॿ]/;
+    const agent = h.transcript.filter((l) => l.who === 'agent');
+    const eng = h.transcript.filter((l) => l.who === 'engineer');
+    const i = h.transcript.findIndex((l) => l.who === 'engineer' && /दिक्कत/.test(l.text));
+    const reply = i >= 0 ? (h.transcript.slice(i + 1).find((l) => l.who === 'agent')?.text ?? '') : '';
+    return [
+      ['default settings: English greeting', /it's Vigil/i.test(agent[0]?.text ?? '') && !/bol rahi/i.test(agent[0]?.text ?? '')],
+      [`Hindi heard (${eng.length} engineer lines) and answered in Hinglish: "${reply.slice(0, 90)}"`, i >= 0 && /\b(hai|hain|raha|rahi|rahe|ho|mein|se|ki|ke|ka)\b/i.test(reply)],
+      ['English "okay, turn the flag off" heard and approved: the flag change started', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
+      ['Hindi "status page update kar do" acted on', (h.incident?.statusUpdates?.length ?? 0) >= 1],
+      ['Vigil never wrote Devanagari (her Indian-English voice cannot read it)', agent.length > 1 && !agent.some((l) => DEV.test(l.text))],
+    ];
+  },
   V17_offtopic: (h) => {
     // Vigil's reply to one typed question: its lines up to the engineer's next line.
     const replyTo = (re) => {
@@ -251,6 +284,7 @@ async function runScenario(name) {
   page.on('pageerror', (e) => consoleErrors.push(`pageerror: ${String(e).slice(0, 200)}`));
   if (OWNER) await page.evaluateOnNewDocument((k) => localStorage.setItem('vigil.owner', k), OWNER);
   if (s.silentFirst) await page.evaluateOnNewDocument(() => localStorage.setItem('vigil.testSilentVoice', '1'));
+  if (s.stallSecond) await page.evaluateOnNewDocument(() => localStorage.setItem('vigil.testStallVoice', '1'));
   await page.goto(`${BASE}/console?s=${id}`, { waitUntil: 'networkidle2' });
   await page.waitForSelector('[data-testid=incoming-call]', { timeout: 20000 });
   ctx.timeline.push({ t: 0, k: 'harness', v: 'phone ringing' });
