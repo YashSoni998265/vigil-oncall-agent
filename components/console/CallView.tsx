@@ -267,6 +267,9 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
           setVoice('failed');
           return;
         }
+        // Let the stopped agent leave the channel first: the fresh one joins with the same RTC uid.
+        await new Promise((r) => setTimeout(r, 1_500));
+        if (!callAlive.current) return;
         const invited = await postJSON<{ agent_id?: string }>(
           '/api/invite-agent',
           { sandbox_id: sandbox.id, channel_name: session.channel, requester_id: session.uid, reconnect: true, resume },
