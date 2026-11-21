@@ -1,4 +1,3 @@
-import 'server-only';
 import type { ScenarioId } from '@/lib/types';
 
 // What Vigil checks before recommending a fix, beyond the cause itself: is it one region or everyone

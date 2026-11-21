@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import AgoraRTC, { AgoraRTCProvider, RemoteUser, useJoin, useLocalMicrophoneTrack, usePublish, useRemoteUsers, type IAgoraRTCClient } from 'agora-rtc-react';
-import { Loader2, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
+import AgoraRTC, { AgoraRTCProvider, useJoin, useLocalMicrophoneTrack, usePublish, useRemoteAudioTracks, useRemoteUsers, type IAgoraRTCClient } from 'agora-rtc-react';
+import { Loader2, Mic, MicOff, PhoneOff, Send, Volume2 } from 'lucide-react';
 import type { Join } from './TeammateJoin';
 
 // The teammate's side of the live incident call: everyone's audio out (listen-only until they tap to talk:
@@ -39,6 +39,17 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
   const { localMicrophoneTrack } = useLocalMicrophoneTrack(ready && talk);
   usePublish([localMicrophoneTrack]);
   const remote = useRemoteUsers();
+  // Subscribe to everyone's audio (Vigil and the engineer) and play it; a tap starts playback where the
+  // browser requires one (iPhone Safari).
+  const { audioTracks } = useRemoteAudioTracks(remote);
+  const [audioOn, setAudioOn] = useState(false);
+  useEffect(() => {
+    for (const t of audioTracks) {
+      try {
+        t.play();
+      } catch {}
+    }
+  }, [audioTracks]);
   const [micOn, setMicOn] = useState(false);
   // Browsers (iPhone Safari above all) may block call audio that did not start with a tap: offer one.
   const [blocked, setBlocked] = useState(false);
@@ -49,12 +60,14 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
     };
   }, []);
   const playAll = () => {
-    for (const u of remote) {
+    for (const t of audioTracks) {
       try {
-        u.audioTrack?.play();
+        t.setVolume(100);
+        t.play();
       } catch {}
     }
     setBlocked(false);
+    setAudioOn(true);
   };
   const [announced, setAnnounced] = useState(false);
   // Questions unlock once the server has recorded the join (it refuses questions before that).
@@ -74,20 +87,19 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
       <p className="mt-5 text-[22px] font-semibold tracking-tight text-ink">{isConnected ? 'You’re on the call' : 'Joining…'}</p>
       <p className="mt-2 text-[14px] text-dim">As {join.name}. Vigil will brief you in a moment.</p>
       <p className="mt-4 text-[12px] text-faint">{remote.length} other{remote.length === 1 ? '' : 's'} on the call</p>
-      {blocked ? (
-        <button onClick={playAll} className="mt-4 w-full rounded-full bg-brand px-4 py-3 text-[15px] font-semibold text-white" data-testid="tap-to-hear">
-          Tap to hear the call
+      {blocked || !audioOn ? (
+        <button
+          onClick={playAll}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-full bg-brand px-4 py-3 text-[15px] font-semibold text-white"
+          data-testid="tap-to-hear"
+        >
+          <Volume2 className="h-5 w-5" /> Turn on call audio
         </button>
       ) : (
         <button onClick={playAll} className="mt-3 text-[12.5px] text-dim underline underline-offset-4" data-testid="cant-hear">
           Can’t hear Vigil? Tap here
         </button>
       )}
-      {remote.map((u) => (
-        <div key={String(u.uid)} className="hidden">
-          <RemoteUser user={u} playAudio playVideo={false} />
-        </div>
-      ))}
       <div className="mt-6 flex items-center gap-3">
         <button
           onClick={async () => {
@@ -157,9 +169,33 @@ function CallText({ id, engineer }: { id: string; engineer: string }) {
 // Questions a manager or senior teammate asks most on an incident call.
 const QUESTIONS = ['What’s the customer impact so far?', 'When will it be fixed?', 'What’s the risk of this fix?', 'Should we tell customers now?', 'Why did this happen?'];
 
+type Recognizer = {
+  lang: string;
+  interimResults: boolean;
+  maxAlternatives: number;
+  onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
+  onerror: (() => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+function recognizer(): Recognizer | null {
+  if (typeof window === 'undefined') return null;
+  const w = window as unknown as { SpeechRecognition?: new () => Recognizer; webkitSpeechRecognition?: new () => Recognizer };
+  const R = w.SpeechRecognition ?? w.webkitSpeechRecognition;
+  return R ? new R() : null;
+}
+
 function AskVigil({ id, engineer, enabled }: { id: string; engineer: string; enabled: boolean }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  // Vigil's engine listens to one voice (the on-call engineer), so a teammate's spoken question is turned
+  // into text by the phone's own speech recognition and sent as their question; Vigil answers out loud.
+  const [canSpeak, setCanSpeak] = useState(false);
+  const [listening, setListening] = useState(false);
+  useEffect(() => {
+    setCanSpeak(recognizer() !== null);
+  }, []);
   const [error, setError] = useState<string | null>(null);
   const [asked, setAsked] = useState<{ key: number; text: string }[]>([]);
 
@@ -188,12 +224,44 @@ function AskVigil({ id, engineer, enabled }: { id: string; engineer: string; ena
     }
   };
 
+  const speak = () => {
+    const r = recognizer();
+    if (!r || listening || !enabled) return;
+    r.lang = 'en-IN';
+    r.interimResults = false;
+    r.maxAlternatives = 1;
+    r.onresult = (e) => {
+      const text = e.results[0]?.[0]?.transcript ?? '';
+      if (text.trim()) void ask(text);
+    };
+    r.onerror = () => setError('Could not catch that. Try again, or type.');
+    r.onend = () => setListening(false);
+    setError(null);
+    setListening(true);
+    try {
+      r.start();
+    } catch {
+      setListening(false);
+    }
+  };
+
   return (
     <section className="mt-6 border-t border-line/10 pt-5 text-left" data-testid="ask-vigil" aria-labelledby="ask-vigil-title">
       <p id="ask-vigil-title" className="text-[14px] font-semibold text-ink">
         Ask Vigil
       </p>
       <p className="mt-1 text-[12.5px] leading-relaxed text-dim">Vigil answers out loud for everyone on the call. Only {engineer} can approve changes.</p>
+      {canSpeak && (
+        <button
+          type="button"
+          onClick={speak}
+          disabled={!enabled || sending || listening}
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-full border border-brand/50 bg-brand/10 px-4 py-3 text-[15px] font-semibold text-ink disabled:opacity-50"
+          data-testid="speak-to-vigil"
+        >
+          <Mic className="h-5 w-5" /> {listening ? 'Listening… speak now' : 'Speak to Vigil'}
+        </button>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         {QUESTIONS.map((q) => (
           <button

@@ -1,9 +1,10 @@
 'use client';
 
-import { Printer } from 'lucide-react';
+import { Download, Printer } from 'lucide-react';
 import { SCENARIOS, fmtClock, fmtDuration, fmtINR, fmtInt, impactAt } from '@/lib/sim';
 import type { Sandbox } from '@/lib/types';
 import { useSandboxView } from './useSandboxView';
+import { insights } from '@/lib/server/insights';
 
 // The postmortem Vigil drafts when an incident is resolved. Blameless, printable.
 
@@ -30,6 +31,18 @@ export default function Postmortem({ id }: { id: string }) {
   return (
     <div className="min-h-dvh bg-white text-slate-900" style={{ colorScheme: 'light' }}>
       <div className="mx-auto max-w-3xl px-5 py-10 sm:py-14 print:py-0">
+        {sb && inc && sb.transcript.length > 0 && (
+          <div className="mb-6 flex justify-end print:hidden">
+            <button
+              type="button"
+              onClick={() => downloadTranscript(sb)}
+              className="inline-flex items-center gap-2 rounded-full border border-slate-300 px-4 py-2 text-sm font-medium text-slate-800 hover:bg-slate-50"
+              data-testid="download-transcript"
+            >
+              <Download className="h-4 w-4" /> Download call transcript
+            </button>
+          </div>
+        )}
         {missing || (view && !inc) ? (
           <p className="text-slate-600">There is no incident in this sandbox yet. Break production in the console first.</p>
         ) : !view || !sb || !inc ? (
@@ -53,6 +66,7 @@ function Doc({ sb }: { sb: Sandbox }) {
   const impact = impactAt(def, inc, resolved);
   const lessons = LESSONS[inc.scenario];
   const approvals = sb.actions.filter((a) => a.approval);
+  const ins = insights(inc.scenario);
   const timeline = sb.actions.filter((a) => a.kind !== 'read' || a.phase === 'before');
 
   return (
@@ -92,6 +106,45 @@ function Doc({ sb }: { sb: Sandbox }) {
 
       <Section title="Root cause">
         <p>{inc.rootCause}</p>
+      </Section>
+
+      <Section title="Root cause analysis (5 whys)">
+        <ol className="list-decimal space-y-1 pl-5">
+          {ins.fiveWhys.map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ol>
+      </Section>
+
+      <Section title="Customer impact">
+        <ul className="list-disc space-y-1 pl-5">
+          <li>
+            <span className="font-semibold">Who:</span> {ins.customer.who}.
+          </li>
+          <li>
+            <span className="font-semibold">What they saw:</span> {ins.customer.sees}.
+          </li>
+          <li>
+            <span className="font-semibold">Scale:</span> {ins.customer.scale}; {ins.customer.support}.
+          </li>
+          <li>
+            <span className="font-semibold">What still worked:</span> {ins.customer.unaffected}.
+          </li>
+        </ul>
+      </Section>
+
+      <Section title="Region impact">
+        <table className="w-full max-w-md text-sm">
+          <tbody>
+            {ins.regions.map((r) => (
+              <tr key={r.region} className="border-b border-slate-200">
+                <td className="py-1.5 pr-4">{r.region}</td>
+                <td className="py-1.5 font-mono">{r.value}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="mt-2">{ins.scope}</p>
       </Section>
 
       <Section title="Timeline (IST)">
@@ -188,7 +241,7 @@ function Doc({ sb }: { sb: Sandbox }) {
       {sb.transcript.length > 0 && (
         <Section title="From the call">
           <div className="space-y-1.5 rounded-xl bg-slate-50 p-4 text-sm">
-            {sb.transcript.slice(-14).map((l, i) => (
+            {sb.transcript.map((l, i) => (
               <p key={i}>
                 <span className="font-semibold">{l.who === 'agent' ? 'Vigil' : l.who === 'teammate' ? 'Teammate' : sb.engineer}:</span> {l.text}
               </p>
@@ -199,6 +252,37 @@ function Doc({ sb }: { sb: Sandbox }) {
       <p className="mt-10 text-xs text-slate-400">Review booked for 9:30 AM. Thali is a fictional company; this postmortem was generated in a Vigil demo sandbox.</p>
     </article>
   );
+}
+
+// The call transcript as a text file: proof of what was said, who approved what, and when.
+function downloadTranscript(sb: Sandbox) {
+  const inc = sb.incident!;
+  const t = (iso: string) => new Date(iso).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const who = (w: string) => (w === 'agent' ? 'Vigil' : w === 'teammate' ? 'Teammate' : sb.engineer);
+  const lines = [
+    'Vigil call transcript',
+    `Incident: ${inc.id} · ${inc.severity} · ${inc.title}`,
+    `On call: ${sb.engineer} · Thali (simulated) · Vigil sandbox ${sb.id}`,
+    `Downloaded: ${new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`,
+    '',
+    'Conversation (IST)',
+    ...sb.transcript.map((l) => `[${t(l.at)}] ${who(l.who)}${l.typed ? ' (typed)' : ''}: ${l.text}`),
+    '',
+    'Production changes and approvals',
+    ...sb.actions.filter((a) => a.approval).map((a) => `[${t(a.at)}] ${a.title} (approved by ${sb.engineer}: "${a.approval}")`),
+    '',
+    'Timeline',
+    ...sb.actions.map((a) => `[${t(a.at)}] ${a.title}`),
+  ];
+  const blob = new Blob([lines.join('\n') + '\n'], { type: 'text/plain;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `vigil-${inc.id}-call-transcript.txt`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
