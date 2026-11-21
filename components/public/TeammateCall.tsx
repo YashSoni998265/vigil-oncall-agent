@@ -5,8 +5,8 @@ import AgoraRTC, { AgoraRTCProvider, RemoteUser, useJoin, useLocalMicrophoneTrac
 import { Loader2, Mic, MicOff, PhoneOff, Send } from 'lucide-react';
 import type { Join } from './TeammateJoin';
 
-// The teammate's side of the live incident call: microphone in, everyone else's audio out,
-// and questions for Vigil. Agora's engine listens to one person (the on-call engineer), so a
+// The teammate's side of the live incident call: everyone's audio out (listen-only until they tap to talk:
+// on an iPhone an open microphone moves the sound to the earpiece), Vigil's words as text, and questions for Vigil. Agora's engine listens to one person (the on-call engineer), so a
 // teammate, for example a manager without a laptop, asks by tapping or typing here; Vigil answers
 // out loud for everyone. Teammates can ask anything, but only the on-call engineer approves changes.
 
@@ -33,10 +33,29 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
     };
   }, []);
   const { isConnected } = useJoin({ appid: join.appId, channel: join.channel, token: join.token, uid: parseInt(join.uid, 10) }, ready);
-  const { localMicrophoneTrack } = useLocalMicrophoneTrack(ready);
+  // Listen-only until the teammate taps to talk: with no microphone open, an iPhone plays the call on the
+  // loudspeaker instead of the earpiece. Vigil hears only the on-call engineer anyway.
+  const [talk, setTalk] = useState(false);
+  const { localMicrophoneTrack } = useLocalMicrophoneTrack(ready && talk);
   usePublish([localMicrophoneTrack]);
   const remote = useRemoteUsers();
-  const [micOn, setMicOn] = useState(true);
+  const [micOn, setMicOn] = useState(false);
+  // Browsers (iPhone Safari above all) may block call audio that did not start with a tap: offer one.
+  const [blocked, setBlocked] = useState(false);
+  useEffect(() => {
+    AgoraRTC.onAutoplayFailed = () => setBlocked(true);
+    return () => {
+      AgoraRTC.onAutoplayFailed = undefined;
+    };
+  }, []);
+  const playAll = () => {
+    for (const u of remote) {
+      try {
+        u.audioTrack?.play();
+      } catch {}
+    }
+    setBlocked(false);
+  };
   const [announced, setAnnounced] = useState(false);
   // Questions unlock once the server has recorded the join (it refuses questions before that).
   const [joinedAck, setJoinedAck] = useState(false);
@@ -55,6 +74,15 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
       <p className="mt-5 text-[22px] font-semibold tracking-tight text-ink">{isConnected ? 'You’re on the call' : 'Joining…'}</p>
       <p className="mt-2 text-[14px] text-dim">As {join.name}. Vigil will brief you in a moment.</p>
       <p className="mt-4 text-[12px] text-faint">{remote.length} other{remote.length === 1 ? '' : 's'} on the call</p>
+      {blocked ? (
+        <button onClick={playAll} className="mt-4 w-full rounded-full bg-brand px-4 py-3 text-[15px] font-semibold text-white" data-testid="tap-to-hear">
+          Tap to hear the call
+        </button>
+      ) : (
+        <button onClick={playAll} className="mt-3 text-[12.5px] text-dim underline underline-offset-4" data-testid="cant-hear">
+          Can’t hear Vigil? Tap here
+        </button>
+      )}
       {remote.map((u) => (
         <div key={String(u.uid)} className="hidden">
           <RemoteUser user={u} playAudio playVideo={false} />
@@ -63,20 +91,66 @@ function OnCall({ join, id, engineer, onLeave }: { join: Join; id: string; engin
       <div className="mt-6 flex items-center gap-3">
         <button
           onClick={async () => {
+            playAll();
+            if (!talk) {
+              setTalk(true);
+              setMicOn(true);
+              return;
+            }
             await localMicrophoneTrack?.setEnabled(!micOn);
             setMicOn(!micOn);
           }}
-          className={`flex h-12 w-12 items-center justify-center rounded-full ${micOn ? 'bg-raised text-ink' : 'bg-warn text-canvas'}`}
-          aria-label={micOn ? 'Mute' : 'Unmute'}
+          className={`flex h-12 shrink-0 items-center justify-center gap-2 rounded-full px-4 ${micOn ? 'bg-raised text-ink' : 'bg-raised/60 text-dim'}`}
+          aria-label={micOn ? 'Mute' : 'Talk'}
+          data-testid="teammate-mic"
         >
           {micOn ? <Mic className="h-5 w-5" /> : <MicOff className="h-5 w-5" />}
+          <span className="text-[13px]">{micOn ? 'Mute' : 'Talk'}</span>
         </button>
         <button onClick={onLeave} className="flex h-12 flex-1 items-center justify-center gap-2 rounded-full bg-bad font-semibold text-white">
           <PhoneOff className="h-5 w-5" /> Leave
         </button>
       </div>
+      <p className="mt-2 text-[12px] text-faint">{micOn ? 'Your microphone is on.' : 'Listening on speaker. Tap Talk to speak.'}</p>
+      <CallText id={id} engineer={engineer} />
       <AskVigil id={id} engineer={engineer} enabled={isConnected && joinedAck} />
     </div>
+  );
+}
+
+// What is being said on the call, as text: the teammate can always read Vigil's answers, even when the
+// phone's sound is off. Polls the same live view the console uses.
+function CallText({ id, engineer }: { id: string; engineer: string }) {
+  const [lines, setLines] = useState<{ at: string; who: string; text: string }[]>([]);
+  useEffect(() => {
+    let stop = false;
+    const load = async () => {
+      try {
+        const res = await fetch(`/api/sandbox?id=${encodeURIComponent(id)}`, { cache: 'no-store' });
+        const data = (await res.json()) as { transcript?: { at: string; who: string; text: string }[] };
+        if (!stop && Array.isArray(data.transcript)) setLines(data.transcript.slice(-5));
+      } catch {}
+    };
+    void load();
+    const t = setInterval(() => void load(), 2000);
+    return () => {
+      stop = true;
+      clearInterval(t);
+    };
+  }, [id]);
+  if (lines.length === 0) return null;
+  return (
+    <section className="mt-6 border-t border-line/10 pt-5 text-left" data-testid="call-text" aria-live="polite" aria-label="What is being said on the call">
+      <p className="text-[14px] font-semibold text-ink">On the call</p>
+      <ul className="mt-2 space-y-2">
+        {lines.map((l) => (
+          <li key={`${l.at}-${l.who}`} className="text-[13px] leading-snug">
+            <span className={`font-semibold ${l.who === 'agent' ? 'text-brand' : 'text-dim'}`}>{l.who === 'agent' ? 'Vigil' : l.who === 'teammate' ? 'You' : engineer}</span>
+            <span className="text-ink"> · {l.text}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
