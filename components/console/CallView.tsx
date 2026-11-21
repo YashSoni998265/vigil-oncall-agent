@@ -183,13 +183,13 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
   const agentStateRef = useRef<AgentState | null>(null);
   const agentTurn = useRef<{ key: string; text: string; status: TurnStatus | undefined; since: number } | null>(null);
   const turnHeardMs = useRef(new Map<string, number>());
-  const agentTurnsSeen = useRef(new Set<string>());
   const engineerTurnsEnded = useRef(new Set<string>());
   const [voice, setVoice] = useState<'waiting' | 'heard' | 'reconnecting' | 'failed'>('waiting');
   // Test hooks for the e2e harness: treat the first agent as silent (a silent start), or the first
   // agent's second reply as stalled (a mid-call stall), to prove each kind of reconnect works.
   const testSilentFirst = useRef(false);
   const testStall = useRef(false);
+  const stallArmed = useRef(false); // the stall test starts with the engineer's first typed message
   useEffect(() => {
     try {
       if (localStorage.getItem('vigil.testSilentVoice') === '1') {
@@ -202,7 +202,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
       }
     } catch {}
   }, []);
-  const stallTest = () => testStall.current && voiceAttempts.current === 0 && agentTurnsSeen.current.size >= 2;
+  const stallTest = () => testStall.current && stallArmed.current && voiceAttempts.current === 0;
   useEffect(() => {
     agentStateRef.current = agentState;
   }, [agentState]);
@@ -335,7 +335,6 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
       const prev = agentTurn.current;
       agentTurn.current = { key, text, status: changed.status, since: prev?.key === key ? prev.since : now };
       agentActivityAt.current = now;
-      agentTurnsSeen.current.add(key);
     }
     for (const i of said) {
       if (String(i.uid) === agentUid || Number(i.uid) === TEAMMATE_UID || i.status !== TurnStatus.END) continue;
@@ -408,6 +407,7 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
         await postJSON('/api/sandbox', { id: sandbox.id, action: 'typed', text: clean });
         const ai = aiRef.current ?? AgoraVoiceAI.getInstance();
         engineerAt.current = Date.now(); // a reply is now owed (voice safety net)
+        if (testStall.current) stallArmed.current = true;
         await ai?.sendText(agentUid, {
           messageType: ChatMessageType.TEXT,
           priority: ChatMessagePriority.INTERRUPTED,
