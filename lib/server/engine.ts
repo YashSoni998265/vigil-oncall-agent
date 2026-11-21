@@ -334,7 +334,12 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
         scenario === 'upi_provider'
           ? 'Checked recent changes: nothing shipped to payments in 9 days'
           : `Found: ${top.summary} (${top.author})`,
-      detail: scenario === 'upi_provider' ? 'The only change in the last hour is a web-app copy edit.' : `${fmtClock(top.at)}, a minute before the errors began.`,
+      detail:
+        scenario === 'upi_provider'
+          ? 'The only change in the last hour is a web-app copy edit.'
+          : scenario === 'bad_deploy'
+            ? `PR #482 "Coupon engine v2", commit 7f3c2a1, reviewed by Neha Rao. Rolled out at ${fmtClock(top.at)}, a minute before the errors began.`
+            : `${fmtClock(top.at)}, a minute before the errors began.`,
       at: step(11_000),
       phase: 'before',
     });

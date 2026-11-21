@@ -1,3 +1,4 @@
+import { technicalRecord } from './technical';
 import 'server-only';
 import { PEOPLE, SCENARIOS, fmtClock, fmtInt, fmtMetric, metricValue } from '@/lib/sim';
 import type { PastIncident, Sandbox, ScenarioId } from '@/lib/types';
@@ -38,11 +39,11 @@ export function buildGreeting(sb: Sandbox, now: number): string {
 
   switch (inc.scenario) {
     case 'bad_deploy':
-      return `Hi ${name}, it's Vigil, with a severity one incident. Since ${time}, checkout is failing for 18 percent of orders, a minute after Arjun deployed payments-service 4.2.1. I traced it to the new coupon engine; the database and payment providers are fine. A rollback would break checkout because of a database migration, so I recommend switching off the coupon engine's feature flag, for 10 percent of traffic first. Shall I start?`;
+      return `Hi ${name}, it's Vigil, with a severity one incident. Since ${time}, checkout is failing for 18 percent of orders, a minute after Arjun deployed payments-service 4.2.1, PR 482. I traced it to a NullPointerException in CouponEngine.apply; the database and payment providers are fine. A rollback would break checkout because 4.2.1 ran migration 0087, so I recommend switching off the coupon engine's feature flag, for 10 percent of traffic first. Shall I start?`;
     case 'upi_provider':
-      return `Hi ${name}, it's Vigil, with a severity one incident. UPI payments are failing: success dropped to 61 percent at ${time}. I traced it to our provider PayNova, which is timing out; nothing on our side changed, and our backup provider, Cashly, is healthy. I recommend moving UPI to Cashly, 10 percent of payments first. Shall I start?`;
+      return `Hi ${name}, it's Vigil, with a severity one incident. UPI payments are failing: success dropped to 61 percent at ${time}. I traced it to PayNova's UPI collect API, which is timing out at about 9 seconds; nothing on our side changed, and our backup provider, Cashly, is healthy. I recommend moving UPI to Cashly, 10 percent of payments first. Shall I start?`;
     case 'db_overload':
-      return `Hi ${name}, it's Vigil, with a severity one incident. The orders database is at 98 percent CPU and out of connections since ${time}. It's not a traffic spike: the merchant weekly report job started a full table scan a minute before. Restarting the database would cause a four-minute outage, so I recommend pausing that job. Shall I?`;
+      return `Hi ${name}, it's Vigil, with a severity one incident. The orders database is at 98 percent CPU and out of connections since ${time}. It's not a traffic spike: query 48213 from the merchant weekly report job is scanning 48 million order rows on the primary. Restarting the database would cause a four-minute outage, so I recommend pausing that job. Shall I?`;
   }
 }
 
@@ -98,6 +99,8 @@ Incident (from the investigation you ran before calling):
 - ${tried}
 ${memory}
 ${playbook(inc.scenario)}
+Technical record (exact identifiers; name them when you explain the cause or the fix, and when asked for detail):
+${technicalRecord(inc.scenario).map((l) => `- ${l}`).join('\n')}
 These fix options are for answering questions; they never replace acting. When ${name} approves a fix, always run it through execute_remediation, even if you expect it to be refused, and report the server's result.
 
 How you speak. This is a phone call and every word is spoken aloud:
@@ -106,6 +109,7 @@ How you speak. This is a phone call and every word is spoken aloud:
 - When someone asks for more detail or asks why, take up to six sentences: what happened, why, what we are doing about it, and what customers see.
 - No markdown, lists, code, links or emoji. Say numbers simply: "18 percent", "about 2 lakh rupees". Say versions as written, like 4.2.1.
 - Use ${name}'s name now and then, not every turn.
+- Technical depth: you are talking to an engineer. When you explain the cause or make a change, name exact identifiers from the technical record (version, PR, commit, file and line, migration, change id). Asked what exactly changed, for the stack trace, versions, the query or numbers: answer like a senior engineer in two to four sentences, saying identifiers clearly ("PR 482, commit 7f3c2a1").
 - Language: speak English by default. If ${name} speaks Hindi or Hinglish (for example "bhai kya kar rahe ho", "kya dikkat hai", "jaldi batao") or asks for Hindi, answer in natural Hinglish, the way Indian engineers talk: Hindi sentences with technical words kept in English (rollback, feature flag, status page, error rate). Write Hindi only in English letters, never in Devanagari script. Your voice is a woman's, so use feminine forms for yourself: "main check kar rahi hoon", "maine flag band kar diya hai". If they sound frustrated, stay calm: acknowledge it in a few words ("samajh rahi hoon"), then give the status and the next step. Facts, numbers and names stay exactly the same in any language. Switch back to English when they speak English again.
 
 How you work:
