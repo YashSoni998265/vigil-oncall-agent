@@ -67,6 +67,28 @@ function Doc({ sb }: { sb: Sandbox }) {
   const lessons = LESSONS[inc.scenario];
   const approvals = sb.actions.filter((a) => a.approval);
   const ins = insights(inc.scenario);
+  // The summary anyone can read in 30 seconds: what happened, who felt it, why, what was done, and what next.
+  const recovered = inc.recoveredAt ? Date.parse(inc.recoveredAt) : null;
+  const checks = sb.actions.filter((a) => a.phase === 'before' && a.kind === 'read').length;
+  const states = [...new Set(inc.statusUpdates.map((u) => u.status))];
+  const summary: [string, string][] = [
+    ['What happened', `${def.title}. It started at ${fmtClock(inc.faultAt)} and the alert fired at ${fmtClock(inc.alertAt)}.`],
+    ['Who was affected', `${ins.customer.who}. They saw ${ins.customer.sees}.`],
+    ['How big', `${fmtInt(impact.failedOrders)} failed orders, about ${fmtINR(impact.inr)} at risk; ${ins.customer.support}. ${ins.customer.unaffected}.`],
+    ['Where', `Every region (${ins.regions.map((r) => `${r.region} ${r.value}`).join(', ')}). ${ins.scope}`],
+    ['Why', inc.rootCause ?? ins.fiveWhys[2]],
+    ['Before calling', `Vigil ran ${checks} checks: traced the failure down the dependency chain, ruled out other suspects, checked every fix for safety, then called ${sb.engineer} with the diagnosis and a recommended fix.`],
+    [
+      'What was done',
+      approvals.length
+        ? approvals.map((a) => `${a.title} (approved by ${sb.engineer}: “${a.approval}”, ${fmtClock(a.at)})`).join('; ') + '.'
+        : `${inc.recommended ?? def.recommended}.`,
+    ],
+    ...(recovered ? ([['Recovery', `Back to normal at ${fmtClock(inc.recoveredAt!)}, confirmed from live metrics, ${fmtDuration(recovered - alert)} after the alert.`]] as [string, string][]) : []),
+    ['Customers told', inc.statusUpdates.length ? `${inc.statusUpdates.length} status page update${inc.statusUpdates.length === 1 ? '' : 's'} (${states.join(', ')}), and the incident channel was kept up to date.` : 'The incident channel was kept up to date.'],
+    ['Follow-ups', inc.followUps.length ? inc.followUps.map((f) => `${f.title} (${f.owner}, ${f.priority})`).join('; ') + '.' : 'None filed.'],
+    ...(inc.summary ? ([['In one line', inc.summary]] as [string, string][]) : []),
+  ];
   const timeline = sb.actions.filter((a) => a.kind !== 'read' || a.phase === 'before');
 
   return (
@@ -101,7 +123,14 @@ function Doc({ sb }: { sb: Sandbox }) {
       </section>
 
       <Section title="Summary">
-        <p>{inc.summary ?? `${def.title}. ${inc.recommended ?? def.recommended} was the plan; see the timeline for what was tried.`}</p>
+        <ul className="space-y-2" data-testid="postmortem-summary">
+          {summary.map(([label, text]) => (
+            <li key={label} className="grid gap-x-3 sm:grid-cols-[150px_1fr]">
+              <span className="font-semibold text-slate-900">{label}</span>
+              <span>{text}</span>
+            </li>
+          ))}
+        </ul>
       </Section>
 
       <Section title="Root cause">
