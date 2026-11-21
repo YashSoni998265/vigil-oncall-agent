@@ -99,8 +99,8 @@ export async function POST(request: NextRequest) {
       failureMessage: 'Sorry, I lost that for a second. Could you say it again?',
       maxHistory: 40,
       turnDetection: {
-        // ARES speech recognition: English and Hindi together (the SDK's type lists single tags only).
-        language: asrLanguage as TurnDetectionLanguage,
+        // ARES speech recognition. The SDK accepts one tag here; a list is applied below (multiLanguage).
+        language: (asrLanguage.includes(',') ? 'hi-IN' : asrLanguage) as TurnDetectionLanguage,
         config: {
           speech_threshold: 0.5,
           start_of_speech: { mode: 'vad', vad_config: { interrupt_duration_ms: 220, prefix_padding_ms: 300 } },
@@ -145,16 +145,37 @@ export async function POST(request: NextRequest) {
     // One voice in command: the agent takes instructions from the on-call engineer only
     // (Agora subscribes the agent to one user). A paged teammate joins the same channel,
     // hears everyone, and Vigil briefs them when they arrive.
-    const session = agent.createSession({
-      channel,
-      agentUid,
-      remoteUids: [requester],
-      idleTimeout: 30,
-      expiresIn: ExpiresIn.hours(1),
-      debug: false,
-    });
+    // English and Hindi together: Agora's ARES Global ASR pipeline accepts several languages as one
+    // comma-separated string (Agora docs, 18 Nov 2026), but this SDK version only accepts a single tag and
+    // sends the request body unchanged. So the list replaces the single tag when the request is built. If
+    // Agora ever refuses it, the call starts again with Hindi alone (which also hears English).
+    const multiLanguage = asrLanguage.includes(',');
+    const inner = agent as unknown as { _resolveTurnDetectionConfig?: () => Record<string, unknown> };
+    if (multiLanguage && typeof inner._resolveTurnDetectionConfig === 'function') {
+      const resolve = inner._resolveTurnDetectionConfig.bind(agent);
+      inner._resolveTurnDetectionConfig = () => ({ ...resolve(), language: asrLanguage });
+    }
+    const startSession = () =>
+      agent
+        .createSession({
+          channel,
+          agentUid,
+          remoteUids: [requester],
+          idleTimeout: 30,
+          expiresIn: ExpiresIn.hours(1),
+          debug: false,
+        })
+        .start();
 
-    const agentId = await session.start();
+    let agentId: string;
+    try {
+      agentId = await startSession();
+    } catch (error) {
+      if (!multiLanguage) throw error;
+      console.warn('[invite-agent] English+Hindi recognition refused; starting with hi-IN:', error instanceof Error ? error.message : error);
+      delete inner._resolveTurnDetectionConfig;
+      agentId = await startSession();
+    }
     await markAgentStarted(id, { agentId, channel, engineerUid: requester, toolsVia: viaMcp ? 'mcp' : 'rest' }, owner, reconnect);
     return NextResponse.json({ agent_id: agentId, create_ts: Math.floor(Date.now() / 1000), state: 'RUNNING' });
   } catch (error) {
