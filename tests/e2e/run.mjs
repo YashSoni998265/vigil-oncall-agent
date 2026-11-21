@@ -187,7 +187,8 @@ const CHECKS = {
     const en = replyTo(/good hotel near MG Road/i);
     const hi = replyTo(/accha hotel/i);
     const me = replyTo(/Who built you/i);
-    const TIP = /Taj|Leela|Oberoi|ITC|Marriott|JW|Hyatt|Ritz|Radisson|Hilton|Novotel|Ibis|Lemon Tree|Airbnb|OYO|Booking\.com|MakeMyTrip|Google|TripAdvisor|Indiranagar|Koramangala|Brigade|star hotel/i;
+    // Whole words only: "ITC" must not match inside "switching".
+    const TIP = /\b(Taj|Leela|Oberoi|ITC|Marriott|JW|Hyatt|Ritz|Radisson|Hilton|Novotel|Ibis|Lemon Tree|Airbnb|OYO|Booking\.com|MakeMyTrip|Google|TripAdvisor|Indiranagar|Koramangala|Brigade Road|star hotel)\b/i;
     const DECLINE = /outside|can'?t help|cannot help|not able to help|only here|here for (this|the) incident|bahar|sirf|nahi kar sakti/i;
     const BACK = /incident|checkout|flag|coupon|canary|4\.2\.1|start/i;
     return [
