@@ -274,7 +274,16 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
   const def = SCENARIOS[scenario];
   if (!def) return { ok: false, error: 'Unknown incident', effects: [] };
   const effects: Effect[] = [];
+  const gate = { refused: '' };
   await mutateSandbox(id, (d) => {
+    // Each team sets its own alert level per metric: Vigil calls only when the incident crosses it.
+    const m = def.metrics[0];
+    const own = d.thresholds?.[m.id];
+    if (own !== undefined && (m.higherIsBetter ? m.peak >= own : m.peak <= own)) {
+      gate.refused = `${m.label} would reach ${fmtMetric(m, m.peak)}, which is inside your alert threshold of ${fmtMetric(m, own)}, so Vigil would not call anyone. Set the threshold back to see the call.`;
+      return;
+    }
+    const alertText = own !== undefined ? def.alert.replace(/\(threshold [^)]*\)/, `(your threshold ${fmtMetric(m, own)})`) : def.alert;
     // Breaking production again starts a fresh incident.
     if (d.call?.status === 'active' && d.call.agentId) {
       const agentId = d.call.agentId;
@@ -313,8 +322,8 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
 
     // Vigil investigates before it calls: read-only findings, timestamped as they happened.
     const step = (ms: number) => nowIso(alertAt + ms);
-    pushChannel(d, 'Alerts', 'bot', `[${def.severity}] ${def.alert}. ${inc.id} opened.`, step(0));
-    pushAction(d, { tool: 'alert', kind: 'system', title: `Alert: ${def.alert}`, detail: `${inc.id} opened at ${def.severity}.`, at: step(0), phase: 'before' });
+    pushChannel(d, 'Alerts', 'bot', `[${def.severity}] ${alertText}. ${inc.id} opened.`, step(0));
+    pushAction(d, { tool: 'alert', kind: 'system', title: `Alert: ${alertText}`, detail: `${inc.id} opened at ${def.severity}.`, at: step(0), phase: 'before' });
 
     const impact = impactAt(def, inc, alertAt + 4000);
     const ins = insights(scenario);
@@ -448,6 +457,7 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
       teammateAnnounced: false,
     };
   });
+  if (gate.refused) return { ok: false, error: gate.refused, effects: [] };
   return { ok: true, effects };
 }
 
@@ -490,6 +500,22 @@ export async function setEngineer(id: string, name: string): Promise<boolean> {
 }
 
 /** The engineer's call language ('en' or 'hi'). Like the name, it stays for every incident until changed. */
+/** The team's own alert level for one metric (null or the default clears it). */
+export async function setThreshold(id: string, metric: string, value: number | null): Promise<boolean> {
+  const def = Object.values(SCENARIOS)
+    .flatMap((s) => s.metrics)
+    .find((m) => m.id === metric);
+  if (!def) return false;
+  if (value !== null && (!Number.isFinite(value) || value < 0 || value > 100_000)) return false;
+  await mutateSandbox(id, (d) => {
+    const next = { ...(d.thresholds ?? {}) };
+    if (value === null || value === def.threshold) delete next[metric];
+    else next[metric] = value;
+    d.thresholds = next;
+  });
+  return true;
+}
+
 export async function setLanguage(id: string, language: string): Promise<boolean> {
   if (language !== 'en' && language !== 'hi') return false;
   await mutateSandbox(id, (d) => {

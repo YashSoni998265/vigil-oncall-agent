@@ -170,12 +170,18 @@ export function MetricCard({
   seed,
   now,
   markers,
+  custom,
+  onThreshold,
 }: {
   def: MetricDef;
   incident: Incident | null;
   seed: string;
   now: number;
   markers: Marker[];
+  /** The team set its own alert level for this metric. */
+  custom?: boolean;
+  /** Save the team's alert level (null resets it to the default). */
+  onThreshold?: (value: number | null) => Promise<void>;
 }) {
   const active = Boolean(incident);
   const points = useMemo(() => metricSeries(def, incident, now, seed, active), [def, incident, now, seed, active]);
@@ -216,13 +222,86 @@ export function MetricCard({
       />
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-faint">
         <span>Baseline {fmt(def.base)}</span>
-        <span className="inline-flex items-center gap-1">
-          <span className="inline-block h-px w-3 border-t border-dashed border-warn/70" /> Alert {fmt(def.threshold)}
-        </span>
+        <ThresholdControl def={def} fmt={fmt} custom={Boolean(custom)} onThreshold={onThreshold} />
         {Math.abs(delta) > def.noise * 3 && <span className={worse ? 'text-bad' : 'text-good'}>{fmtDelta(def, delta)}</span>}
         <span className="ml-auto font-mono">10 min</span>
       </p>
     </section>
+  );
+}
+
+/** "Alert at …", editable: each team sets its own level, and Vigil calls only when it is crossed. */
+function ThresholdControl({
+  def,
+  fmt,
+  custom,
+  onThreshold,
+}: {
+  def: MetricDef;
+  fmt: (v: number) => string;
+  custom: boolean;
+  onThreshold?: (value: number | null) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    const v = Number(draft);
+    setEditing(false);
+    if (!onThreshold || draft.trim() === '' || !Number.isFinite(v) || v === def.threshold) return;
+    setSaving(true);
+    await onThreshold(v).catch(() => {});
+    setSaving(false);
+  };
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        Alert at
+        <input
+          autoFocus
+          type="number"
+          step="any"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={() => void save()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void save();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          aria-label={`Alert threshold for ${def.label}, in ${def.unit}`}
+          className="w-16 rounded border border-line/20 bg-canvas px-1 py-0.5 text-[11px] text-ink focus:border-brand/60 focus:outline-none"
+          data-testid={`threshold-input-${def.id}`}
+        />
+        {def.unit === '/min' ? '/min' : def.unit}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1">
+      <span className="inline-block h-px w-3 border-t border-dashed border-warn/70" /> Alert {fmt(def.threshold)}
+      {custom && <span className="text-brand">(yours)</span>}
+      {onThreshold && (
+        <button
+          type="button"
+          onClick={() => {
+            setDraft(String(def.threshold));
+            setEditing(true);
+          }}
+          disabled={saving}
+          className="ml-0.5 rounded px-1 text-dim underline underline-offset-2 hover:text-ink disabled:opacity-50"
+          title="Set your own alert level: Vigil calls only when it is crossed"
+          data-testid={`threshold-edit-${def.id}`}
+        >
+          {saving ? 'Saving…' : 'Edit'}
+        </button>
+      )}
+      {custom && onThreshold && (
+        <button type="button" onClick={() => void onThreshold(null)} className="rounded px-1 text-dim underline underline-offset-2 hover:text-ink" title="Back to the default alert level">
+          Reset
+        </button>
+      )}
+    </span>
   );
 }
 

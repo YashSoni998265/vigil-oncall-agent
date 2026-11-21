@@ -182,6 +182,8 @@ export interface Sandbox {
    * 'hi': speech recognition hears Hindi (hi-IN) and Vigil answers in Hinglish.
    */
   language?: 'en' | 'hi';
+  /** The team's own alert levels, by metric id (default: the metric's threshold). Vigil calls only when one is crossed. */
+  thresholds?: Record<string, number>;
 }
 
 /** What GET /api/sandbox returns. */

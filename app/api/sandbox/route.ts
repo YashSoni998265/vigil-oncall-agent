@@ -19,6 +19,7 @@ import {
   teammateAsk,
   teammateJoined,
   triggerIncident,
+  setThreshold,
   viewSandbox,
 } from '@/lib/server/engine';
 
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest) {
       if (!SCENARIOS[scenario]) return NextResponse.json({ error: 'unknown scenario' }, { status: 400 });
       const r = await triggerIncident(id, scenario);
       if (r.effects.length) after(() => runEffects(r.effects));
-      return NextResponse.json({ ok: r.ok });
+      return NextResponse.json(r.ok ? { ok: true } : { ok: false, error: r.error }, { status: r.ok ? 200 : 409 });
     }
     case 'reset': {
       const effects = await resetSandbox(id);
@@ -66,6 +67,12 @@ export async function POST(request: NextRequest) {
     case 'set_name': {
       const ok = await setEngineer(id, String(body.name ?? ''));
       return NextResponse.json({ ok }, { status: ok ? 200 : 400 });
+    }
+    case 'set_threshold': {
+      // The team's own alert level for one metric; null clears it.
+      const value = body.value === null ? null : Number(body.value);
+      const ok = await setThreshold(id, String(body.metric ?? ''), value);
+      return NextResponse.json(ok ? { ok } : { ok, error: 'unknown metric or invalid threshold' }, { status: ok ? 200 : 400 });
     }
     case 'set_language': {
       // 'hi' (Hindi mode): the next call hears Hindi and Vigil answers in Hinglish. Anything but 'en' or 'hi' is a 400.

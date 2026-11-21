@@ -31,7 +31,9 @@ export default function Console() {
       if (!id) return;
       unlockAudio();
       setBusy(scenario);
-      await postJSON('/api/sandbox', { id, action: 'trigger', scenario });
+      const r = await postJSON<{ error?: string }>('/api/sandbox', { id, action: 'trigger', scenario }).catch(() => null);
+      // Under the team's own threshold, Vigil does not call: say so plainly.
+      if (r && !r.ok && r.data.error) window.alert(r.data.error);
       await refresh();
       setBusy(null);
       setPicker(false);
@@ -112,7 +114,19 @@ export default function Console() {
 
           <div className={`grid gap-4 sm:grid-cols-2 ${callLive ? 'order-2 lg:order-none' : ''}`}>
             {metrics.map((m) => (
-              <MetricCard key={m.id} def={m} incident={inc} seed={sb.id} now={now} markers={markersFor(inc, m.id)} />
+              <MetricCard
+                key={m.id}
+                def={{ ...m, threshold: sb.thresholds?.[m.id] ?? m.threshold }}
+                custom={sb.thresholds?.[m.id] !== undefined}
+                onThreshold={async (value) => {
+                  await postJSON('/api/sandbox', { id: sb.id, action: 'set_threshold', metric: m.id, value }).catch(() => null);
+                  await refresh();
+                }}
+                incident={inc}
+                seed={sb.id}
+                now={now}
+                markers={markersFor(inc, m.id)}
+              />
             ))}
             <ImpactCard scenario={def} incident={inc} now={now} />
           </div>
