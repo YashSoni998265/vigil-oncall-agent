@@ -208,7 +208,8 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
   }, [agentState]);
   useEffect(() => {
     const id = setInterval(() => {
-      if ((testSilentFirst.current && voiceAttempts.current === 0) || stallTest()) return;
+      // During a swap, the stopped agent's last audio must not count as the fresh agent's voice.
+      if (swapping.current || (testSilentFirst.current && voiceAttempts.current === 0) || stallTest()) return;
       const agent = remoteUsersRef.current.find((u) => String(u.uid) === agentUid);
       const level = agent?.audioTrack?.getVolumeLevel() ?? 0;
       if (level <= 0.01) return;
@@ -309,21 +310,29 @@ function CallInner({ session, rtmClient, sandbox, hints, maxSeconds, onEnd, onAg
 
   const transcript = useMemo(() => normalizeTranscript(raw, String(client.uid)), [raw, client.uid]);
 
-  // For the voice safety net: Vigil's latest caption turn, and when the engineer last finished a turn.
+  // For the voice safety net: Vigil's current caption turn (the one whose words or status just changed;
+  // a fresh agent after a swap reuses turn numbers, so position in the list is not enough), and when the
+  // engineer last finished a turn.
+  const agentSnapshot = useRef(new Map<number, string>());
   useEffect(() => {
     const now = Date.now();
     const said = transcript.filter((i) => typeof i.text === 'string' && i.text.trim() && !INTERNAL_MARK.test(String(i.text)));
-    const mine = said.filter((i) => String(i.uid) === agentUid);
-    const last = mine[mine.length - 1];
-    if (last) {
-      const text = String(last.text);
-      const key = `${last.turn_id}:${text.slice(0, 24)}`;
-      const prev = agentTurn.current;
-      if (!prev || prev.key !== key || prev.text !== text || prev.status !== last.status) {
-        agentTurn.current = { key, text, status: last.status, since: prev?.key === key ? prev.since : now };
-        agentActivityAt.current = now;
-        agentTurnsSeen.current.add(key);
+    let changed: (typeof said)[number] | null = null;
+    for (const i of said) {
+      if (String(i.uid) !== agentUid) continue;
+      const snap = `${i.status}|${String(i.text)}`;
+      if (agentSnapshot.current.get(i.turn_id) !== snap) {
+        agentSnapshot.current.set(i.turn_id, snap);
+        changed = i;
       }
+    }
+    if (changed) {
+      const text = String(changed.text);
+      const key = `${voiceAttempts.current}:${changed.turn_id}`;
+      const prev = agentTurn.current;
+      agentTurn.current = { key, text, status: changed.status, since: prev?.key === key ? prev.since : now };
+      agentActivityAt.current = now;
+      agentTurnsSeen.current.add(key);
     }
     for (const i of said) {
       if (String(i.uid) === agentUid || Number(i.uid) === TEAMMATE_UID || i.status !== TurnStatus.END) continue;
