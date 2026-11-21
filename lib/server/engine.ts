@@ -21,6 +21,7 @@ import { agentSpeak, agentThink, stopAgent } from './agora';
 import { canaryAnnouncement, recoveryAnnouncement } from './announce';
 import { CANARY_PERCENT, CANARY_WATCH_MS, changePlan } from './changes';
 import { diagnosis, preflightSummary } from './diagnosis';
+import { insights, regionSummary } from './insights';
 
 export type Effect = () => Promise<void>;
 
@@ -316,12 +317,22 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
     pushAction(d, { tool: 'alert', kind: 'system', title: `Alert: ${def.alert}`, detail: `${inc.id} opened at ${def.severity}.`, at: step(0), phase: 'before' });
 
     const impact = impactAt(def, inc, alertAt + 4000);
+    const ins = insights(scenario);
     pushAction(d, {
       tool: 'get_incident',
       kind: 'read',
       title: `Assessed impact: about ${fmtInt((def.peakFailure * 1240) | 0)} failed orders a minute`,
-      detail: `${fmtInt(impact.failedOrders)} orders failed so far, ${fmtINRShort(impact.inr)} at risk.`,
+      detail: `${fmtInt(impact.failedOrders)} orders failed so far, ${fmtINRShort(impact.inr)} at risk. Customers: ${ins.customer.who}; they see ${ins.customer.sees}. ${ins.customer.support}.`,
       at: step(4000),
+      phase: 'before',
+    });
+    // Is it one region or everyone? A regional network or data-centre problem looks different from a bad release.
+    pushAction(d, {
+      tool: 'check_regions',
+      kind: 'read',
+      title: `Checked regions: ${regionSummary(ins)}. Everyone, not one region`,
+      detail: ins.scope,
+      at: step(7000),
       phase: 'before',
     });
 
@@ -386,6 +397,15 @@ export async function triggerIncident(id: string, scenario: ScenarioId): Promise
       title: `Checked each fix before recommending: ${preflightSummary(dx)}`,
       detail: dx.preflight.map((f) => `${f.fix}: ${f.verdict}, ${f.why}.`).join(' '),
       at: step(27_000),
+      phase: 'before',
+    });
+    // Root cause analysis before the fix: why it happened, not just what to switch off.
+    pushAction(d, {
+      tool: 'root_cause_analysis',
+      kind: 'read',
+      title: `Root cause analysis (5 whys): ${ins.fiveWhys[2].replace(/^Why[^?]*\? /, '')}`,
+      detail: ins.fiveWhys.join(' '),
+      at: step(28_000),
       phase: 'before',
     });
     if (past) {

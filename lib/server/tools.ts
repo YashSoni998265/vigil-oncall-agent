@@ -20,6 +20,7 @@ import { searchRunbooks } from './runbooks';
 import { createGithubIssue, githubEnabled } from './integrations';
 import { CANARY_PERCENT, CANARY_WATCH_MS, changeId, changePlan } from './changes';
 import { diagnosis } from './diagnosis';
+import { insights } from './insights';
 import {
   defaultFollowUps,
   defaultRootCause,
@@ -142,6 +143,10 @@ async function getIncident(sb: Sandbox): Promise<ToolOutcome> {
     revenue_at_risk: fmtINRShort(impact.inr),
     likely_cause: likelyCause(inc.scenario),
     root_cause_trace: { path: diagnosis(inc.scenario).path.join(' -> '), root_cause: diagnosis(inc.scenario).rootCause, ruled_out: diagnosis(inc.scenario).ruledOut },
+    regions_checked: insights(inc.scenario).regions,
+    scope: insights(inc.scenario).scope,
+    customer_experience: insights(inc.scenario).customer,
+    root_cause_analysis: insights(inc.scenario).fiveWhys,
     fixes_checked_before_recommending: diagnosis(inc.scenario).preflight,
     recommended_fix: inc.recommended ?? def.recommended,
     ...(inc.canaryAt && !inc.mitigatedAt ? { change_in_progress: `Live for ${CANARY_PERCENT}% of traffic (canary); the canary check finishes about ${Math.max(0, Math.round((Date.parse(inc.canaryAt) + CANARY_WATCH_MS - t) / 1000))} seconds from now.` } : {}),
