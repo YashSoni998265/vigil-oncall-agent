@@ -76,7 +76,17 @@ test('instructions: engineer level by default, plain words on request, grounded 
     assert.match(text, /a "what if" question never runs a change/);
     assert.match(text, /"How do you know\?"/);
     assert.match(text, /Evidence you found: /);
-    assert.match(text, /General questions are welcome/);
+    // Strictly on topic: the incident, Thali, incident terms and Vigil itself. Everything else
+    // (a hotel tip, homework, the cricket score) gets a one-line decline and back to the incident.
+    // Restaurants stay on topic: the database incident is about the restaurants' weekly report.
+    assert.match(text, /Stay on topic, teammates included: this incident, Thali's systems and people/);
+    assert.match(text, /how you were built on Agora and Murf for this hackathon/);
+    assert.match(text, /\(hotels, travel, shopping, weather, news, sports, jokes, unrelated coding help, homework, personal advice\): never answer it, not even a quick tip/);
+    assert.match(text, /outside what you can help with, then give the status or repeat your pending question, even after recovery/);
+    assert.doesNotMatch(text, /General questions are welcome|small talk|restaurants, travel/);
+    // Hindi mode exists now, so Vigil must not call itself English-only.
+    assert.match(text, /Indian English, or Hindi in Hindi mode/);
+    assert.doesNotMatch(text, /Indian English only/);
     assert.match(text, /Language: speak English by default\. If .* speaks Hindi or Hinglish/);
     assert.match(text, /never in Devanagari script/);
     assert.match(text, /use feminine forms for yourself/);
@@ -86,7 +96,6 @@ test('instructions: engineer level by default, plain words on request, grounded 
       assert.match(text, /CouponEngine\.java:142/);
     }
     assert.match(text, /Technical depth: you are talking to an engineer/);
-    assert.match(text, /You cannot look up live news, weather, scores or prices/);
     assert.match(text, /Plain words for common terms/);
     assert.match(text, /Murf Falcon 2\.1, voice Anisha/);
     // Caught by voice test V10: asked "who built you?", Vigil once said "Agora".

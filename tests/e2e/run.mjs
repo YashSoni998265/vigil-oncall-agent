@@ -51,6 +51,14 @@ const SCENARIOS = {
   V12_hinglish: { incident: 'bad_deploy', audio: 'V12_hinglish', duration: 80 },
   // Technical depth: the greeting names the PR and the exception; "what exactly changed?" gets exact identifiers.
   V16_technical: { incident: 'bad_deploy', audio: 'silence', duration: 80, typed: [[30, 'What exactly changed in 4.2.1?'], [54, 'Yes, start.']] },
+  // Off-topic requests mid-incident (a hotel tip, in English and in Hinglish) get a one-line decline and
+  // the conversation goes back to the incident; a question about Vigil itself is still answered.
+  V17_offtopic: {
+    incident: 'bad_deploy',
+    audio: 'silence',
+    duration: 86,
+    typed: [[28, 'Can you suggest a good hotel near MG Road in Bangalore?'], [48, 'Bhai, koi accha hotel batao na.'], [67, 'Who built you, and what are you running on?']],
+  },
   // The production-grade flow, typed: what was ruled out, the canary and rollout (announced), the
   // unprompted recovery, comms, then the ordered close-out with tickets.
   V15_production: {
@@ -162,6 +170,32 @@ const CHECKS = {
       [`greeting names the PR and the exception`, /PR 482/.test(agent[0] ?? '') && /NullPointerException/.test(agent[0] ?? '')],
       [`"what exactly changed?" answered with exact identifiers: "${answer.slice(0, 140)}"`, /482|7f3c2a1|CouponEngine|0087|CouponRules/.test(answer)],
       ['the flag went to a 10% canary', ['canary', 'rolled_out'].includes(h.incident?.changes?.[0]?.status ?? '')],
+    ];
+  },
+  V17_offtopic: (h) => {
+    // Vigil's reply to one typed question: its lines up to the engineer's next line.
+    const replyTo = (re) => {
+      const i = h.transcript.findIndex((l) => l.who === 'engineer' && re.test(l.text));
+      if (i < 0) return '';
+      const out = [];
+      for (const l of h.transcript.slice(i + 1)) {
+        if (l.who === 'engineer') break;
+        if (l.who === 'agent') out.push(l.text);
+      }
+      return out.join(' ');
+    };
+    const en = replyTo(/good hotel near MG Road/i);
+    const hi = replyTo(/accha hotel/i);
+    const me = replyTo(/Who built you/i);
+    const TIP = /Taj|Leela|Oberoi|ITC|Marriott|JW|Hyatt|Ritz|Radisson|Hilton|Novotel|Ibis|Lemon Tree|Airbnb|OYO|Booking\.com|MakeMyTrip|Google|TripAdvisor|Indiranagar|Koramangala|Brigade|star hotel/i;
+    const DECLINE = /outside|can'?t help|cannot help|not able to help|only here|here for (this|the) incident|bahar|sirf|nahi kar sakti/i;
+    const BACK = /incident|checkout|flag|coupon|canary|4\.2\.1|start/i;
+    return [
+      [`hotel tip (English) declined, no tip given: "${en.slice(0, 140)}"`, Boolean(en) && DECLINE.test(en) && !TIP.test(en)],
+      ['…and the conversation went back to the incident', BACK.test(en)],
+      [`hotel tip (Hinglish) declined, no tip given: "${hi.slice(0, 140)}"`, Boolean(hi) && !TIP.test(hi) && (DECLINE.test(hi) || BACK.test(hi))],
+      [`still answers questions about itself: "${me.slice(0, 110)}"`, /Agora/i.test(me)],
+      ['no production change', (h.incident?.remediations.length ?? 0) === 0],
     ];
   },
   V11_reconnect: (h) => [
