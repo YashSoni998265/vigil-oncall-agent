@@ -107,7 +107,7 @@ PS31's required demo flow (initiate → understand → execute → confirm → f
 
 ### What's new
 
-**Production-grade, after a senior SRE's review (21 Nov):**
+**Production-grade (21 Nov):**
 - **Root cause, not symptom.** Before calling, Vigil traces the failing requests down the dependency chain (checkout-api → payments-service → coupon-engine) and rules out the other suspects with evidence. The console marks the root cause on the service map.
 - **Checks every fix before recommending one.** It saw that a rollback would break checkout (migration 0087), so it recommends the reversible feature flag instead of a fix the guard would block.
 - **Never changes production in one step.** Every change gets a change record: what changes, blast radius, risk, undo, how it is checked, and who approved it, in their words. Where traffic can be split, it goes to **10% first (a canary)**; Vigil checks the canary, rolls out to everyone or **reverts automatically**, and says the result out loud. It never changes code: the lasting fix goes to the owner as a ticket.
